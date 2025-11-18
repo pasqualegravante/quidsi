@@ -1,0 +1,86 @@
+/* App.vue */
+#app {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f0f2f5;
+  color: #333;
+}
+
+.top-row {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 10px; /* spazio tra S1 e S2 */
+  padding: 10px;
+}
+
+.s1 {
+  flex: 7 1 0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  background-color: #ffffff;
+  min-height: 300px; /* assicura altezza minima su schermi piccoli */
+}
+
+.s2 {
+  flex: 3 1 0;
+  border-radius: 10px;
+  padding: 15px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 300px;
+}
+
+.s2 h3 {
+  margin-top: 0;
+  color: #0077b6;
+}
+
+.s3 {
+  height: 20vh; /* altezza proporzionale alla finestra */
+  min-height: 100px;
+  margin: 10px;
+  border-radius: 10px;
+  padding: 15px;
+  background-color: #0077b6;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+/* Pulsanti */
+button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 5px;
+  background-color: #00b4d8;
+  color: #fff;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  margin-top: 10px;
+}
+
+button:hover {
+  background-color: #0096c7;
+}
+
+/* Media Query per schermi piccoli */
+@media (max-width: 768px) {
+  .top-row {
+    flex-direction: column;
+  }
+  .s1, .s2 {
+    min-height: 200px;
+  }
+  .s3 {
+    height: 150px;
+  }
+}
