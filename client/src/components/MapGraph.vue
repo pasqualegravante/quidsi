@@ -2,7 +2,7 @@
   <div class="map-wrapper">
     <div id="map" ref="mapContainer"></div>
     <div class="controls">
-      <button @click="clearSelection">Pulisci Mappa</button>
+      <button @click="clearSelection">Pulisci Mappa (Solo Manuali)</button>
     </div>
   </div>
 </template>
@@ -11,7 +11,7 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// Fix icone Leaflet in Vue/Vite/Webpack
+// Fix icone Leaflet per Vue/Vite
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -45,26 +45,74 @@ export default {
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(this.map);
 
-      // LayerGroup per nodi e polilinee
+      // LayerGroup per i disegni manuali (punti e linee blu)
       this.markersLayer = L.layerGroup().addTo(this.map);
       this.polylinesLayer = L.layerGroup().addTo(this.map);
 
       // Click sulla mappa per aggiungere nodi
       this.map.on('click', this.addNode);
+
+      // Click nel vuoto deseleziona le strade del GeoJSON
+      this.map.on('click', (e) => {
+        if (e.originalEvent.target.id === 'map' || e.originalEvent.target.classList.contains('leaflet-container')) {
+           this.resetGeoJsonStyle();
+        }
+      });
     },
+
     async loadGeoJSON(url = '/grafo_web2.geojson') {
       try {
         const response = await fetch(url);
         const data = await response.json();
+
+        const defaultStyle = { color: '#ff7800', weight: 5, opacity: 0.65 };
+        const highlightStyle = { color: '#0000ff', weight: 7, opacity: 0.9 };
+
         const geoLayer = L.geoJSON(data, {
-          style: { color: '#ff7800', weight: 5, opacity: 0.65 },
+          style: defaultStyle,
           onEachFeature: (feature, layer) => {
+            // Creazione dinamica del contenuto del Popup
+            const container = document.createElement('div');
+            container.style.minWidth = "160px";
+
+            let infoHtml = '';
             if (feature.properties) {
-              const popupContent = Object.entries(feature.properties)
+              infoHtml = Object.entries(feature.properties)
                 .map(([k, v]) => `<b>${k}:</b> ${v}`)
-                .join('<br>');
-              layer.bindPopup(popupContent);
+                .join('<br>') + '<hr>';
             }
+            container.innerHTML = infoHtml;
+
+            // Pulsante DESELEZIONA
+            const btnDeselect = document.createElement('button');
+            btnDeselect.innerText = 'Deseleziona';
+            btnDeselect.className = 'btn-popup-deselect';
+            btnDeselect.onclick = () => {
+              layer.setStyle(defaultStyle);
+              layer.closePopup();
+            };
+
+            // Pulsante ELIMINA
+            const btnDelete = document.createElement('button');
+            btnDelete.innerText = 'Elimina Strada';
+            btnDelete.className = 'btn-popup-delete';
+            btnDelete.onclick = () => {
+              if (confirm("Sei sicuro di voler eliminare questa strada dalla mappa?")) {
+                layer.remove();
+              }
+            };
+
+            container.appendChild(btnDeselect);
+            container.appendChild(btnDelete);
+            layer.bindPopup(container);
+
+            // Logica evidenziamento al click
+            layer.on('click', (e) => {
+              L.DomEvent.stopPropagation(e);
+              this.resetGeoJsonStyle(); // Resetta le altre
+              layer.setStyle(highlightStyle);
+              layer.bringToFront();
+            });
           }
         }).addTo(this.map);
 
@@ -73,9 +121,15 @@ export default {
         const bounds = geoLayer.getBounds();
         if (bounds.isValid()) this.map.fitBounds(bounds);
       } catch (err) {
-        console.error('Errore GeoJSON:', err);
+        console.error('Errore durante il caricamento del GeoJSON:', err);
       }
     },
+
+    resetGeoJsonStyle() {
+      const defaultStyle = { color: '#ff7800', weight: 5, opacity: 0.65 };
+      this.geoJsonLayers.forEach(gj => gj.setStyle(defaultStyle));
+    },
+
     addNode(e) {
       const nodeId = this.nodes.length + 1;
       const node = { id: nodeId, lat: e.latlng.lat, lng: e.latlng.lng };
@@ -112,8 +166,9 @@ export default {
 
       this.lastNodeId = nodeId;
     },
+
     calculateDistance(nodeA, nodeB) {
-      const R = 6371000; // raggio terrestre in metri
+      const R = 6371000;
       const rad = Math.PI / 180;
       const φ1 = nodeA.lat * rad;
       const φ2 = nodeB.lat * rad;
@@ -125,18 +180,18 @@ export default {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       return R * c;
     },
+
     clearSelection() {
       this.$emit('select-node', null);
       this.$emit('select-edge', null);
 
-      this.markersLayer.clearLayers();
-      this.polylinesLayer.clearLayers();
-      this.geoJsonLayers.forEach(l => this.map.removeLayer(l));
-      this.geoJsonLayers = [];
+      if (this.markersLayer) this.markersLayer.clearLayers();
+      if (this.polylinesLayer) this.polylinesLayer.clearLayers();
 
       this.nodes = [];
       this.edges = [];
       this.lastNodeId = null;
+      console.log("Rimossi solo marker e linee manuali.");
     },
   },
 };
@@ -166,5 +221,29 @@ export default {
 button {
   cursor: pointer;
   padding: 5px 10px;
+}
+
+/* Stili per i bottoni dentro il popup */
+:deep(.btn-popup-deselect) {
+  background: #777;
+  color: white;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  width: 100%;
+  border-radius: 4px;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+:deep(.btn-popup-delete) {
+  background: #ff4444;
+  color: white;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  width: 100%;
+  border-radius: 4px;
+  font-weight: bold;
 }
 </style>
