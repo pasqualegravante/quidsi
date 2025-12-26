@@ -1,6 +1,7 @@
 {
 "type": "FeatureCollection",
 "name": "grafo_web",
+"crs":4326,
 "features": [
 { "type": "Feature", "properties": { "codice": 8415, "strada": 8415, "desvia": "VIA CASTEL DI CORTESANO", "fumetto": "VIA CASTEL DI CORTESANO", "vifraz": "TRENTO", "sensouni": 0, "tipo_arco": "", "tipo_cod": 0, "tipo_stra": "" }, "geometry": { "type": "LineString", "coordinates": [ [ 11.1303536, 46.1245081 ], [ 11.1306427, 46.1246647 ], [ 11.1307094, 46.124695 ], [ 11.1307799, 46.1247084 ], [ 11.1308613, 46.1247102 ], [ 11.1311224, 46.1246648 ] ] } },
 { "type": "Feature", "properties": { "codice": 900, "strada": 900, "desvia": "VIA A. DEGASPERI", "fumetto": "VIA A. DEGASPERI", "vifraz": "TRENTO", "sensouni": 0, "tipo_arco": "", "tipo_cod": 0, "tipo_stra": "" }, "geometry": { "type": "LineString", "coordinates": [ [ 11.1273326, 46.0475432 ], [ 11.1273047, 46.0475302 ], [ 11.1272806, 46.0475126 ], [ 11.1272605, 46.047495 ], [ 11.1272451, 46.0474728 ], [ 11.127234, 46.0474496 ], [ 11.12723, 46.0474241 ], [ 11.1272309, 46.0474067 ], [ 11.1272394, 46.047382 ], [ 11.127254, 46.0473592 ], [ 11.1272709, 46.0473421 ], [ 11.1272837, 46.047331 ] ] } },
