@@ -1,22 +1,22 @@
 <template>
   <div class="map-container">
     <div id="map" ref="mapRef" @contextmenu.prevent></div>
-    
+
     <div class="control-panel">
       <div class="panel-header">
         <h3>QuidSI</h3>
-        <span class="subtitle">Simulazione & Routing</span>
+        <span class="subtitle">Decision Support System - Traffico</span>
       </div>
 
       <div class="panel-body">
         <div class="info-box">
           <div class="info-row">
-            <span class="key-badge">SX</span>
+            <span class="key-badge sx">SX</span>
             <span>Navigazione (Partenza/Arrivo)</span>
           </div>
           <div class="info-row">
-            <span class="key-badge">DX</span>
-            <span>Chiudi/Apri strada (Simulazione)</span>
+            <span class="key-badge dx">DX</span>
+            <span>Chiudi/Apri intera via (Simulazione)</span>
           </div>
         </div>
 
@@ -32,35 +32,28 @@
         </div>
 
         <div v-if="closedStreets.size > 0" class="warning-box">
-          <strong>Attenzione:</strong> {{ closedStreets.size }} tratti stradali chiusi.
+          <span class="icon">🚧</span>
+          <strong>{{ closedStreets.size }}</strong> strade chiuse al traffico.
         </div>
 
         <div class="actions">
-          <button 
-            v-if="nodes.length >= 2" 
-            @click="calculateBestRoute" 
-            class="btn btn-primary"
-          >
+          <button v-if="nodes.length >= 2" @click="calculateRoute" class="btn btn-primary">
             Aggiorna Percorso
           </button>
-          
+
           <div class="btn-group">
-            <button @click="resetMap" class="btn btn-outline">Reset</button>
-            <button 
-              v-if="closedStreets.size > 0" 
-              @click="resetClosures" 
-              class="btn btn-outline-danger"
-            >
+            <button @click="resetMap" class="btn btn-outline">Reset Punti</button>
+            <button v-if="closedStreets.size > 0" @click="resetClosures" class="btn btn-outline-danger">
               Riapri Tutto
             </button>
           </div>
         </div>
       </div>
-      
+
       <div class="panel-footer">
         <label class="checkbox-label">
           <input type="checkbox" v-model="showGraphNodes" @change="toggleGraphNodes">
-          Mostra nodi grafo
+          Mostra nodi di rete
         </label>
       </div>
     </div>
@@ -71,29 +64,16 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-/**
- * PriorityQueue implementation for A* Algorithm.
- * Uses a binary heap for O(log n) performance on insertions and removals.
- */
 class MinHeap {
   constructor() { this.heap = []; }
-  
-  push(node) {
-    this.heap.push(node);
-    this.bubbleUp();
-  }
-  
+  push(node) { this.heap.push(node); this.bubbleUp(); }
   pop() {
     if (this.heap.length === 0) return null;
     const top = this.heap[0];
     const bottom = this.heap.pop();
-    if (this.heap.length > 0) {
-      this.heap[0] = bottom;
-      this.bubbleDown();
-    }
+    if (this.heap.length > 0) { this.heap[0] = bottom; this.bubbleDown(); }
     return top;
   }
-  
   bubbleUp() {
     let i = this.heap.length - 1;
     while (i > 0) {
@@ -103,7 +83,6 @@ class MinHeap {
       i = p;
     }
   }
-  
   bubbleDown() {
     let i = 0;
     while (true) {
@@ -115,7 +94,6 @@ class MinHeap {
       i = s;
     }
   }
-  
   isEmpty() { return this.heap.length === 0; }
 }
 
@@ -124,22 +102,11 @@ export default {
   data() {
     return {
       map: null,
-      
-      // Data structures
-      nodes: [],               // Selected start/end points
-      graph: {},               // Adjacency list for the routing graph
-      allStreetsIndex: [],     // Spatial index for fast lookups
-      
-      // Leaflet Layers
-      layers: {
-        streets: null,
-        route: null,
-        markers: null,
-        debug: null
-      },
-
-      // State
-      closedStreets: new Set(), // Set of IDs (Strings)
+      nodes: [],
+      graph: {},
+      allStreetsIndex: [],
+      layers: { streets: null, route: null, markers: null, debug: null },
+      closedStreets: new Set(),
       routeInfo: null,
       showGraphNodes: false
     };
@@ -148,315 +115,202 @@ export default {
     this.initMap();
     this.fetchData();
   },
-  beforeUnmount() {
-    if (this.map) {
-      this.map.off();
-      this.map.remove();
-    }
-  },
   methods: {
-    // --- MAP INITIALIZATION ---
     initMap() {
-      // Disable default zoom control to move it to top-left
       this.map = L.map(this.$refs.mapRef, { zoomControl: false }).setView([46.0665, 11.1216], 15);
-      
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(this.map);
 
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap'
-      }).addTo(this.map);
-
-      // Initialize layer groups strictly ordered by z-index
       this.layers.streets = L.layerGroup().addTo(this.map);
       this.layers.route = L.layerGroup().addTo(this.map);
       this.layers.debug = L.layerGroup().addTo(this.map);
       this.layers.markers = L.layerGroup().addTo(this.map);
 
-      // Global map click handler
       this.map.on('click', this.handleMapClick);
     },
 
-    // --- DATA LOADING ---
     async fetchData() {
       try {
-        const res = await fetch('/grafo_web2.geojson');
-        if (!res.ok) throw new Error('Failed to load GeoJSON');
+        const res = await fetch('/grafo_optimized.geojson');
         const data = await res.json();
-        
         this.buildGraph(data);
         this.renderStreets(data);
-        
-      } catch (err) {
-        console.error('Data loading error:', err);
-        alert('Errore nel caricamento della rete stradale.');
-      }
+      } catch (err) { console.error(err); }
+    },
+
+    buildGraph(data) {
+      this.graph = {};
+      data.features.forEach(f => {
+        const coords = f.geometry.coordinates;
+        const p = f.properties;
+        const roadGroupId = String(p.ref_id || p.codice || p.id);
+        const speedFactor = (p.speed || 30) / 3.6;
+        const isOneWay = String(p.oneway || p.sensouni) === '1';
+
+        for (let i = 0; i < coords.length - 1; i++) {
+          const k1 = `${coords[i][1].toFixed(4)},${coords[i][0].toFixed(4)}`;
+          const k2 = `${coords[i + 1][1].toFixed(4)},${coords[i + 1][0].toFixed(4)}`;
+          const d = L.latLng(coords[i][1], coords[i][0]).distanceTo(L.latLng(coords[i + 1][1], coords[i + 1][0]));
+          const timeCost = d / speedFactor;
+
+          if (!this.graph[k1]) this.graph[k1] = [];
+          if (!this.graph[k2]) this.graph[k2] = [];
+
+          this.graph[k1].push({ to: k2, dist: d, cost: timeCost, roadId: roadGroupId });
+          if (!isOneWay) {
+            this.graph[k2].push({ to: k1, dist: d, cost: timeCost, roadId: roadGroupId });
+          }
+        }
+      });
     },
 
     renderStreets(data) {
       const geoLayer = L.geoJSON(data, {
-        style: (feature) => this.getStyle(feature),
-        onEachFeature: (feature, layer) => {
-          // Push to index for spatial search
-          this.allStreetsIndex.push({ layer, feature });
+        style: (f) => this.getStyle(f),
+        onEachFeature: (f, layer) => {
+          this.allStreetsIndex.push({ layer, feature: f });
 
-          // Basic tooltip
-          layer.bindTooltip(feature.properties.desvia || 'Strada', { 
-            sticky: true, direction: 'top' 
-          });
+          const props = f.properties;
+          let tooltipHtml = `<div style="padding: 5px; min-width: 150px;">`;
+          tooltipHtml += `<strong style="font-size: 14px;">${props.name || props.desvia || 'Strada'}</strong><hr style="margin: 5px 0;">`;
+          for (let key in props) {
+            if (['id', 'ref_id', 'codice', 'speed', 'oneway', 'vifraz', 'tipo_arco'].includes(key)) {
+              tooltipHtml += `<span style="font-size: 11px;"><b>${key}:</b> ${props[key]}</span><br>`;
+            }
+          }
+          tooltipHtml += `</div>`;
+          layer.bindTooltip(tooltipHtml, { sticky: true, direction: 'top' });
 
-          // Event Listeners
-          layer.on('click', (e) => {
-            L.DomEvent.stopPropagation(e);
-            this.handleMapClick(e); // Pass click to logic handler
-          });
-
+          layer.on('click', (e) => { L.DomEvent.stopPropagation(e); this.handleMapClick(e); });
           layer.on('contextmenu', (e) => {
             L.DomEvent.stopPropagation(e);
-            this.toggleClosure(String(feature.properties.codice));
+            const groupId = String(f.properties.ref_id || f.properties.codice || f.properties.id);
+            this.toggleClosure(groupId);
           });
         }
       });
-      
       this.layers.streets.addLayer(geoLayer);
     },
 
-    // --- CORE LOGIC ---
-    
+    getStyle(feature) {
+      const id = String(feature.properties.ref_id || feature.properties.codice || feature.properties.id);
+      const isClosed = this.closedStreets.has(id);
+      return { color: isClosed ? '#e74c3c' : '#3388ff', weight: 4, opacity: isClosed ? 0.8 : 0.6, dashArray: isClosed ? '10, 10' : null };
+    },
+
+    toggleClosure(id) {
+      if (this.closedStreets.has(id)) this.closedStreets.delete(id);
+      else this.closedStreets.add(id);
+      this.layers.streets.eachLayer(group => group.eachLayer(l => l.setStyle(this.getStyle(l.feature))));
+      if (this.nodes.length >= 2) this.calculateRoute();
+    },
+
     handleMapClick(e) {
       if (this.nodes.length >= 2) this.resetMap();
-
       const match = this.getNearestStreet(e.latlng);
-      if (!match) return; // Clicked too far from any road
+      if (!match) return;
 
       const { point, segment, properties } = match;
       const key = `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`;
-      const roadId = String(properties.codice);
+      const roadGroupId = String(properties.ref_id || properties.codice || properties.id);
 
-      // Dynamic graph injection: split the edge if this is a new node
       if (!this.graph[key]) {
-        this.injectNodeIntoGraph(key, point, segment, roadId);
+        const isOneWay = String(properties.oneway || properties.sensouni) === '1';
+        this.injectNodeIntoGraph(key, point, segment, roadGroupId, properties.speed, isOneWay);
       }
 
       this.nodes.push({ lat: point.lat, lng: point.lng, graphKey: key });
       this.addMarker(point, this.nodes.length === 1 ? 'start' : 'end');
-
-      if (this.nodes.length === 2) {
-        this.calculateRoute();
-      }
+      if (this.nodes.length === 2) this.calculateRoute();
     },
 
-    injectNodeIntoGraph(key, point, segment, roadId) {
+    injectNodeIntoGraph(key, point, segment, roadGroupId, speedKmh, isOneWay) {
       const [pA, pB] = segment;
-      // Create keys for existing segment endpoints
       const keyA = `${pA.lat.toFixed(4)},${pA.lng.toFixed(4)}`;
       const keyB = `${pB.lat.toFixed(4)},${pB.lng.toFixed(4)}`;
-      
       const distA = point.distanceTo(pA);
       const distB = point.distanceTo(pB);
+      const speedMs = (speedKmh || 30) / 3.6;
+      const costA = distA / speedMs;
+      const costB = distB / speedMs;
 
-      // Create bidirectional connections
-      this.graph[key] = [
-        { to: keyA, dist: distA, roadId },
-        { to: keyB, dist: distB, roadId }
-      ];
-      
-      // Link existing nodes to new split node
-      if (this.graph[keyA]) this.graph[keyA].push({ to: key, dist: distA, roadId });
-      if (this.graph[keyB]) this.graph[keyB].push({ to: key, dist: distB, roadId });
+      this.graph[key] = [{ to: keyB, dist: distB, cost: costB, roadId: roadGroupId }];
+      if (!isOneWay) this.graph[key].push({ to: keyA, dist: distA, cost: costA, roadId: roadGroupId });
+      if (this.graph[keyA]) this.graph[keyA].push({ to: key, dist: distA, cost: costA, roadId: roadGroupId });
+      if (!isOneWay && this.graph[keyB]) this.graph[keyB].push({ to: key, dist: distB, cost: costB, roadId: roadGroupId });
     },
 
     getNearestStreet(latlng) {
-      let bestMatch = null;
-      let minDistance = Infinity;
+      let bestMatch = null; let minDistance = Infinity;
       const p = this.map.latLngToLayerPoint(latlng);
-
-      // Search optimization: iterate raw layers for geometric calculation
       this.allStreetsIndex.forEach(item => {
-        const layer = item.layer;
-        // Handle both simple Polylines and MultiPolylines
-        const polyline = (layer instanceof L.Polyline) ? layer : (layer.getLayers ? layer.getLayers()[0] : null);
-        
-        if (polyline) {
-          const pts = polyline.getLatLngs();
+        const poly = (item.layer instanceof L.Polyline) ? item.layer : (item.layer.getLayers ? item.layer.getLayers()[0] : null);
+        if (poly) {
+          const pts = poly.getLatLngs();
           for (let i = 0; i < pts.length - 1; i++) {
             const p1 = this.map.latLngToLayerPoint(pts[i]);
-            const p2 = this.map.latLngToLayerPoint(pts[i+1]);
-            
-            const closestPoint = L.LineUtil.closestPointOnSegment(p, p1, p2);
-            const closestLatLng = this.map.layerPointToLatLng(closestPoint);
-            const dist = latlng.distanceTo(closestLatLng);
-
-            // 30 meters tolerance
-            if (dist < minDistance && dist < 30) {
-              minDistance = dist;
-              bestMatch = {
-                point: closestLatLng,
-                segment: [pts[i], pts[i+1]],
-                properties: item.feature.properties
-              };
-            }
+            const p2 = this.map.latLngToLayerPoint(pts[i + 1]);
+            const closest = L.LineUtil.closestPointOnSegment(p, p1, p2);
+            const cLL = this.map.layerPointToLatLng(closest);
+            const d = latlng.distanceTo(cLL);
+            if (d < minDistance && d < 30) { minDistance = d; bestMatch = { point: cLL, segment: [pts[i], pts[i + 1]], properties: item.feature.properties }; }
           }
         }
       });
       return bestMatch;
     },
 
-    // --- DSS & GRAPH MANAGEMENT ---
-
-    buildGraph(data) {
-      this.graph = {};
-      data.features.forEach(f => {
-        const coords = f.geometry.coordinates;
-        // Crucial: Ensure IDs are strings to avoid type mismatch later
-        const id = String(f.properties.codice);
-
-        for (let i = 0; i < coords.length - 1; i++) {
-          // Precision fix: round to 4 decimals to ensure connectivity
-          const p1 = `${coords[i][1].toFixed(4)},${coords[i][0].toFixed(4)}`;
-          const p2 = `${coords[i+1][1].toFixed(4)},${coords[i+1][0].toFixed(4)}`;
-          const dist = L.latLng(coords[i][1], coords[i][0]).distanceTo(L.latLng(coords[i+1][1], coords[i+1][0]));
-
-          if (!this.graph[p1]) this.graph[p1] = [];
-          if (!this.graph[p2]) this.graph[p2] = [];
-
-          this.graph[p1].push({ to: p2, dist, roadId: id });
-          this.graph[p2].push({ to: p1, dist, roadId: id });
-        }
-      });
-    },
-
-    toggleClosure(id) {
-      if (this.closedStreets.has(id)) {
-        this.closedStreets.delete(id);
-      } else {
-        this.closedStreets.add(id);
-      }
-      this.updateLayerStyles();
-      
-      // Auto-recalculate if a route exists
-      if (this.nodes.length >= 2) this.calculateRoute();
-    },
-
-    updateLayerStyles() {
-      this.layers.streets.eachLayer(layer => {
-        layer.eachLayer(l => {
-          if (l.feature) l.setStyle(this.getStyle(l.feature));
-        });
-      });
-    },
-
-    getStyle(feature) {
-      const id = String(feature.properties.codice);
-      if (this.closedStreets.has(id)) {
-        return { color: '#e74c3c', weight: 4, opacity: 0.8, dashArray: '10, 10' }; // Red dashed
-      }
-      return { color: '#3388ff', weight: 4, opacity: 0.6 }; // Default Blue
-    },
-
-    // --- ROUTING ALGORITHM (A*) ---
-
     calculateRoute() {
       const start = this.nodes[0].graphKey;
       const end = this.nodes[1].graphKey;
       const targetLL = L.latLng(end.split(',').map(Number));
-
-      const distances = new Map();
-      const prev = new Map();
-      const pq = new MinHeap();
-
-      distances.set(start, 0);
-      pq.push({ id: start, priority: 0 });
+      const gScore = new Map(); const prev = new Map(); const pq = new MinHeap();
+      gScore.set(start, 0); pq.push({ id: start, priority: 0 });
 
       while (!pq.isEmpty()) {
         const current = pq.pop().id;
         if (current === end) break;
-
-        const neighbors = this.graph[current] || [];
-        for (const neighbor of neighbors) {
-          // DSS Check: Skip if road is closed
-          if (this.closedStreets.has(String(neighbor.roadId))) continue;
-
-          const newDist = distances.get(current) + neighbor.dist;
-          if (newDist < (distances.get(neighbor.to) ?? Infinity)) {
-            distances.set(neighbor.to, newDist);
-            prev.set(neighbor.to, current);
-            
-            // Heuristic: Euclidean distance to target
-            const h = L.latLng(neighbor.to.split(',').map(Number)).distanceTo(targetLL);
-            pq.push({ id: neighbor.to, priority: newDist + h });
+        (this.graph[current] || []).forEach(neighbor => {
+          if (this.closedStreets.has(String(neighbor.roadId))) return;
+          const tentG = gScore.get(current) + neighbor.cost;
+          if (tentG < (gScore.get(neighbor.to) ?? Infinity)) {
+            gScore.set(neighbor.to, tentG); prev.set(neighbor.to, current);
+            const h = L.latLng(neighbor.to.split(',').map(Number)).distanceTo(targetLL) / (70 / 3.6);
+            pq.push({ id: neighbor.to, priority: tentG + h });
           }
-        }
+        });
       }
-
       this.drawRoute(prev, end);
     },
 
     drawRoute(prev, end) {
       this.layers.route.clearLayers();
-      const path = [];
-      let curr = end;
-      let totalDist = 0;
-
-      // Backtrack path
-      if (prev.has(end)) {
+      const path = []; let curr = end; let totalDist = 0;
+      if (prev.has(end) || end === this.nodes[0].graphKey) {
         while (curr) {
-          const pt = curr.split(',').map(Number);
-          path.push(pt);
+          path.push(curr.split(',').map(Number));
           const parent = prev.get(curr);
-          if (parent) {
-            totalDist += L.latLng(pt).distanceTo(L.latLng(parent.split(',').map(Number)));
-          }
+          if (parent) totalDist += L.latLng(curr.split(',').map(Number)).distanceTo(L.latLng(parent.split(',').map(Number)));
           curr = parent;
         }
       }
-
-      if (path.length === 0) {
-        alert("Nessun percorso trovato. Verificare le chiusure stradali.");
-        return;
-      }
-
-      this.routeInfo = { 
-        distance: totalDist, 
-        time: Math.round((totalDist / 1000) / 30 * 60) || 1 // Approx 30km/h avg speed
-      };
-
-      L.polyline(path, { color: '#27ae60', weight: 6, opacity: 0.9 }).addTo(this.layers.route);
+      if (path.length < 2) { alert("Percorso non trovato!"); return; }
+      this.routeInfo = { distance: totalDist, time: Math.round(totalDist / 1000 / 30 * 60) || 1 };
+      L.polyline(path, { color: '#27ae60', weight: 6, opacity: 0.9, interactive: false }).addTo(this.layers.route);
       this.map.fitBounds(path, { padding: [50, 50] });
     },
 
-    // --- UI HELPERS ---
-
     addMarker(latlng, type) {
       const color = type === 'start' ? '#2980b9' : '#c0392b';
-      L.circleMarker(latlng, {
-        radius: 8,
-        fillColor: color,
-        color: '#fff',
-        weight: 2,
-        fillOpacity: 1
-      }).addTo(this.layers.markers);
+      L.circleMarker(latlng, { radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 1 }).addTo(this.layers.markers);
     },
 
-    resetMap() {
-      this.layers.markers.clearLayers();
-      this.layers.route.clearLayers();
-      this.nodes = [];
-      this.routeInfo = null;
-    },
-
-    resetClosures() {
-      this.closedStreets.clear();
-      this.updateLayerStyles();
-      if (this.nodes.length >= 2) this.calculateRoute();
-    },
-
+    resetMap() { this.layers.markers.clearLayers(); this.layers.route.clearLayers(); this.nodes = []; this.routeInfo = null; },
+    resetClosures() { this.closedStreets.clear(); this.layers.streets.eachLayer(g => g.eachLayer(l => l.setStyle(this.getStyle(l.feature)))); if (this.nodes.length >= 2) this.calculateRoute(); },
     toggleGraphNodes() {
       this.layers.debug.clearLayers();
       if (this.showGraphNodes) {
-        Object.keys(this.graph).forEach(k => {
-          L.circleMarker(k.split(',').map(Number), { radius: 1, color: '#333' }).addTo(this.layers.debug);
-        });
+        Object.keys(this.graph).forEach(k => { L.circleMarker(k.split(',').map(Number), { radius: 1, color: '#333' }).addTo(this.layers.debug); });
       }
     }
   }
@@ -464,12 +318,11 @@ export default {
 </script>
 
 <style scoped>
-/* Main Container */
 .map-container {
   position: relative;
   width: 100%;
   height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: sans-serif;
 }
 
 #map {
@@ -478,7 +331,10 @@ export default {
   z-index: 0;
 }
 
-/* Control Panel - Floating Style */
+path.leaflet-interactive:focus {
+  outline: none;
+}
+
 .control-panel {
   position: absolute;
   top: 10px;
@@ -486,14 +342,11 @@ export default {
   width: 300px;
   background: white;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  display: flex;
-  flex-direction: column;
   overflow: hidden;
 }
 
-/* Header */
 .panel-header {
   padding: 15px;
   background: #f8f9fa;
@@ -511,21 +364,24 @@ export default {
   color: #7f8c8d;
 }
 
-/* Body */
 .panel-body {
   padding: 15px;
 }
 
-/* Info Legend */
 .info-box {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 15px;
   font-size: 12px;
-  color: #555;
   background: #f8f9fa;
   padding: 8px;
   border-radius: 4px;
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
 }
 
 .key-badge {
@@ -536,10 +392,11 @@ export default {
   border-radius: 3px;
   font-weight: bold;
   font-size: 10px;
-  margin-right: 5px;
+  margin-right: 8px;
+  min-width: 24px;
+  text-align: center;
 }
 
-/* Stats */
 .stats-card {
   display: flex;
   justify-content: space-between;
@@ -567,18 +424,19 @@ export default {
   color: #1b5e20;
 }
 
-/* Alerts */
 .warning-box {
   background: #fff3cd;
   color: #856404;
   padding: 10px;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
   margin-bottom: 15px;
   border: 1px solid #ffeeba;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-/* Buttons */
 .actions {
   display: flex;
   flex-direction: column;
@@ -598,19 +456,25 @@ export default {
   cursor: pointer;
   flex: 1;
   font-size: 13px;
-  transition: background 0.2s;
 }
 
-.btn-primary { background: #3498db; color: white; }
-.btn-primary:hover { background: #2980b9; }
+.btn-primary {
+  background: #3498db;
+  color: white;
+}
 
-.btn-outline { background: white; border: 1px solid #ccc; color: #333; }
-.btn-outline:hover { background: #f1f1f1; }
+.btn-outline {
+  background: white;
+  border: 1px solid #ccc;
+  color: #333;
+}
 
-.btn-outline-danger { background: white; border: 1px solid #e74c3c; color: #e74c3c; }
-.btn-outline-danger:hover { background: #fcebe9; }
+.btn-outline-danger {
+  background: white;
+  border: 1px solid #e74c3c;
+  color: #e74c3c;
+}
 
-/* Footer */
 .panel-footer {
   padding: 10px 15px;
   background: #f8f9fa;
