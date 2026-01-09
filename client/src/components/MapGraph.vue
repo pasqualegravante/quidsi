@@ -5,74 +5,70 @@
     <div class="control-panel">
       <div class="panel-header">
         <h3>QuidSI Enterprise</h3>
-        <span class="subtitle">Scenario Manager v2.1</span>
+        <span class="subtitle">Advanced GIS Operations</span>
       </div>
 
       <div class="panel-body">
+
+        <div class="search-section">
+          <div class="search-box-wrapper">
+            <input v-model="searchQuery" placeholder="Cerca indirizzo..." class="search-input" @keyup.enter="searchAddress" />
+            <button @click="searchAddress" class="btn-search">🔍</button>
+          </div>
+          <ul v-if="searchResults.length > 0" class="search-results">
+            <li v-for="(res, index) in searchResults" :key="index" @click="flyToLocation(res)">
+              <strong>{{ res.display_name.split(',')[0] }}</strong>
+            </li>
+          </ul>
+        </div>
         
+        <hr>
+
         <div v-if="routeStats" class="kpi-container">
           <div class="kpi-row main">
             <span class="label">Attuale</span>
-            <div class="values">
-               <strong>{{ formatTime(routeStats.real.time) }}</strong>
-               <small>{{ formatDist(routeStats.real.dist) }}</small>
-            </div>
+            <div class="values"><strong>{{ formatTime(routeStats.real.time) }}</strong><small>{{ formatDist(routeStats.real.dist) }}</small></div>
           </div>
-
           <div v-if="hasImpact" class="kpi-row delta bad">
-            <span class="label">⚠️ Impatto</span>
-            <div class="values">
-               <span>+ {{ formatTime(routeStats.delta.time) }}</span>
-               <small>+ {{ formatDist(routeStats.delta.dist) }}</small>
-            </div>
+            <span class="label">⚠️ Delta</span>
+            <div class="values"><span>+{{ formatTime(routeStats.delta.time) }}</span><small>+{{ formatDist(routeStats.delta.dist) }}</small></div>
           </div>
-          
-          <div v-else class="kpi-row delta good">
-            <span class="label">✅ Ottimale</span>
-            <div class="values">OK</div>
-          </div>
+          <div v-else class="kpi-row delta good"><span class="label">✅ Status</span><div class="values">OK</div></div>
         </div>
 
-        <div v-if="closedCount > 0" class="warning-box">
-          🚧 <strong>{{ closedCount }}</strong> vie chiuse attive.
-        </div>
-        <div v-else class="info-box">
-          Tasto Destro su una strada per chiuderla.
-        </div>
+        <div class="closures-manager">
+          <div class="section-title">
+            🚧 Gestione Blocchi ({{ closedCount }})
+            <button v-if="closedCount > 0" @click="resetAllClosures" class="btn-xs del-all">Reset Tutto</button>
+          </div>
 
-        <div class="actions">
-          <button v-if="closedCount > 0" @click="resetAllClosures" class="btn btn-outline-danger">Reset Mappa</button>
+          <ul v-if="closedCount > 0" class="closure-list">
+            <li v-for="id in currentClosedIds" :key="id" class="closure-item">
+              <span>{{ id }}</span>
+              <button @click="toggleStreet(id)" class="btn-icon" title="Riapri strada">♻️</button>
+            </li>
+          </ul>
+          <div v-else class="info-box">
+            Nessuna strada chiusa.<br>Tasto destro sulla mappa per chiudere.
+          </div>
         </div>
 
         <hr>
 
         <div class="scenario-manager">
-          <h4>💾 Scenari Salvati</h4>
-          
+          <h4>💾 Scenari</h4>
           <div v-if="closedCount > 0" class="save-form">
-            <input 
-              v-model="newScenarioName" 
-              placeholder="Nome scenario (es. Mercato)" 
-              class="input-text" 
-              @keyup.enter="saveScenario"
-            />
-            <button @click="saveScenario" class="btn btn-primary" :disabled="isSaving">
-              {{ saveBtnText }}
-            </button>
+            <input v-model="newScenarioName" placeholder="Nome scenario..." class="input-text" />
+            <button @click="saveScenario" class="btn btn-primary" :disabled="isSaving">{{ saveBtnText }}</button>
           </div>
-
           <ul class="scenario-list">
             <li v-for="scen in scenarios" :key="scen._id" class="scenario-item">
-              <div class="scen-info">
-                <strong>{{ scen.name }}</strong>
-                <small>{{ scen.closed_ids.length }} chiusure - {{ formatDate(scen.created_at) }}</small>
-              </div>
+              <div class="scen-info"><strong>{{ scen.name }}</strong><small>{{ scen.closed_ids.length }} blocchi</small></div>
               <div class="scen-actions">
-                <button @click="loadScenario(scen._id)" class="btn-xs load" title="Carica Scenario">Carica</button>
-                <button @click="deleteScenario(scen._id)" class="btn-xs del" title="Elimina">X</button>
+                <button @click="loadScenario(scen._id)" class="btn-xs load">Load</button>
+                <button @click="deleteScenario(scen._id)" class="btn-xs del">X</button>
               </div>
             </li>
-            <li v-if="scenarios.length === 0" class="empty-msg">Nessuno scenario salvato nel DB.</li>
           </ul>
         </div>
 
@@ -84,18 +80,12 @@
 <script>
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-
-// --- FIX ICONE LEAFLET ---
 import iconRetinaUrl from 'leaflet/dist/images/marker-icon-2x.png';
 import iconUrl from 'leaflet/dist/images/marker-icon.png';
 import shadowUrl from 'leaflet/dist/images/marker-shadow.png';
 
 delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl,
-  iconUrl,
-  shadowUrl,
-});
+L.Icon.Default.mergeOptions({ iconRetinaUrl, iconUrl, shadowUrl });
 
 export default {
   name: 'MapGraph',
@@ -103,104 +93,91 @@ export default {
     return {
       map: null,
       nodes: [],
-      layers: { streets: null, route: null, markers: null },
+      // Array per tenere traccia dei marker grafici (per poterli spostare col snapping)
+      markerObjects: [], 
+      layers: { streets: null, route: null, search: null },
       
-      // Dati operativi
       routeStats: null, 
       closedCount: 0,
       currentClosedIds: [],
       
-      // Dati Scenari (DB)
       scenarios: [],
       newScenarioName: "",
-      
-      // UI States
       isSaving: false,
-      saveBtnText: "Salva"
+      saveBtnText: "Salva",
+      searchQuery: "",
+      searchResults: []
     }
   },
   computed: {
-    hasImpact() {
-      return this.routeStats && this.routeStats.delta.time > 0;
-    }
+    hasImpact() { return this.routeStats && this.routeStats.delta.time > 0; }
   },
   mounted() {
     this.initMap();
     this.loadMapData();
-    this.fetchScenarios(); // Carica lista dal DB all'avvio
+    this.fetchScenarios();
   },
   methods: {
-    // --- 1. INIZIALIZZAZIONE MAPPA ---
     initMap() {
       this.map = L.map(this.$refs.mapRef, { zoomControl: true }).setView([46.0665, 11.1216], 15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(this.map);
       
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap',
-        maxZoom: 19
-      }).addTo(this.map);
-
       this.layers.streets = L.layerGroup().addTo(this.map);
       this.layers.route = L.layerGroup().addTo(this.map);
-      this.layers.markers = L.layerGroup().addTo(this.map);
-
+      this.layers.search = L.layerGroup().addTo(this.map);
+      
       this.map.on('click', this.onMapClick);
     },
 
-    // --- 2. CARICAMENTO DATI GEOJSON ---
     async loadMapData() {
       try {
         const res = await fetch('/grafo_optimized.geojson');
-        if (!res.ok) throw new Error("GeoJSON non trovato in public/");
-        
         const data = await res.json();
-        
         L.geoJSON(data, {
           style: (f) => this.getStreetStyle(f),
           onEachFeature: (f, layer) => {
-            const rawId = f.properties.desvia || f.properties.name || f.properties.id || "unknown";
-            const id = String(rawId).trim();
+            const id = String(f.properties.desvia || f.properties.name || f.properties.id || "unknown").trim();
+            layer.bindTooltip(`<b>${id}</b>`, { permanent: false, direction: 'top', className: 'street-label' });
             
-            // FIX TOOLTIP: Non sticky, appare solo on hover
-            layer.bindTooltip(`<b>${id}</b>`, { 
-                permanent: false, 
-                direction: 'top',
-                className: 'street-label'
+            // --- FEATURE MIGLIORATA: Highlight Hover ---
+            layer.on('mouseover', () => {
+                if(!this.currentClosedIds.includes(id)) layer.setStyle({ color: '#f39c12', weight: 6, opacity: 1 });
             });
-            
+            layer.on('mouseout', () => {
+                layer.setStyle(this.getStreetStyle(f));
+            });
+            // ------------------------------------------
+
             layer.on('contextmenu', (e) => {
               L.DomEvent.stopPropagation(e);
               this.toggleStreet(id);
             });
           }
         }).addTo(this.layers.streets);
-      } catch (err) {
-        console.error("Errore GeoJSON:", err);
-      }
+      } catch (err) { console.error(err); }
     },
 
     getStreetStyle(f) {
-      const rawId = f.properties.desvia || f.properties.name || f.properties.id || "unknown";
-      const id = String(rawId).trim();
+      const id = String(f.properties.desvia || f.properties.name || f.properties.id || "unknown").trim();
       const isClosed = this.currentClosedIds.includes(id);
-      
       return { 
-        color: isClosed ? '#e74c3c' : '#3388ff', 
-        weight: isClosed ? 5 : 4, 
-        opacity: isClosed ? 0.8 : 0.4, 
-        dashArray: isClosed ? '5, 10' : null 
+          color: isClosed ? '#e74c3c' : '#3388ff', 
+          weight: isClosed ? 5 : 4, 
+          opacity: isClosed ? 0.8 : 0.4, 
+          dashArray: isClosed ? '5, 10' : null 
       };
     },
 
-    // --- 3. GESTIONE CLICK E PERCORSO ---
     async onMapClick(e) {
+      this.layers.search.clearLayers();
       if (this.nodes.length >= 2) this.resetMarkers();
       
       this.nodes.push(e.latlng);
       
+      // Creiamo il marker
       const color = this.nodes.length === 1 ? '#2980b9' : '#c0392b';
-      L.circleMarker(e.latlng, {
-        radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 1
-      }).addTo(this.layers.markers);
+      const mk = L.circleMarker(e.latlng, { radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 1 }).addTo(this.map);
+      this.markerObjects.push(mk);
 
       if (this.nodes.length === 2) this.getRoute();
     },
@@ -208,48 +185,44 @@ export default {
     async getRoute() {
       try {
         const res = await fetch('http://localhost:4000/api/calculate-route', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({ 
-            start: [this.nodes[0].lat, this.nodes[0].lng], 
-            end: [this.nodes[1].lat, this.nodes[1].lng] 
-          })
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ start: [this.nodes[0].lat, this.nodes[0].lng], end: [this.nodes[1].lat, this.nodes[1].lng] })
         });
-        
         const data = await res.json();
+        
         if (data.path) {
             this.drawRoute(data.path);
-            this.routeStats = data.stats; 
+            this.routeStats = data.stats;
+            
+            // --- FEATURE SNAPPING ---
+            // Se il backend ci restituisce i punti snappati, spostiamo i marker visivi lì
+            if(data.snapped_points && this.markerObjects.length === 2) {
+                // Backend ritorna [lat, lng]
+                this.markerObjects[0].setLatLng(data.snapped_points.start);
+                this.markerObjects[1].setLatLng(data.snapped_points.end);
+                // Aggiorniamo anche i nodi logici per coerenza
+                this.nodes[0] = L.latLng(data.snapped_points.start);
+                this.nodes[1] = L.latLng(data.snapped_points.end);
+            }
         }
-      } catch (e) { 
-        alert("Errore nel calcolo del percorso."); 
-      }
+      } catch (e) { alert("Errore calcolo percorso."); }
     },
 
     drawRoute(path) {
       this.layers.route.clearLayers();
-      const poly = L.polyline(path, {
-        color: '#27ae60', weight: 7, opacity: 0.9, interactive: false
-      }).addTo(this.layers.route);
-      
-      setTimeout(() => {
-        if (this.map) this.map.fitBounds(poly.getBounds(), {padding: [50, 50]});
-      }, 100);
+      const poly = L.polyline(path, { color: '#27ae60', weight: 7, opacity: 0.9, interactive: false }).addTo(this.layers.route);
+      setTimeout(() => { if (this.map) this.map.fitBounds(poly.getBounds(), {padding: [50, 50]}); }, 100);
     },
 
-    // --- 4. GESTIONE CHIUSURE (API) ---
     async toggleStreet(id) {
-      try {
-        const res = await fetch(`http://localhost:4000/api/toggle-closure/${encodeURIComponent(id)}`, { method: 'POST' });
-        const data = await res.json();
-        
-        this.closedCount = data.closed_count;
-        this.currentClosedIds = data.currently_closed;
-        
-        this.refreshMapStyles();
-        if (this.nodes.length === 2) this.getRoute();
-        
-      } catch (e) { console.error(e); }
+      // API call
+      const res = await fetch(`http://localhost:4000/api/toggle-closure/${encodeURIComponent(id)}`, { method: 'POST' });
+      const data = await res.json();
+      this.closedCount = data.closed_count;
+      this.currentClosedIds = data.currently_closed;
+      
+      this.refreshMapStyles();
+      if (this.nodes.length === 2) this.getRoute();
     },
 
     async resetAllClosures() {
@@ -261,171 +234,104 @@ export default {
     },
 
     refreshMapStyles() {
-      this.layers.streets.eachLayer(layer => {
-        if (layer.feature) layer.setStyle(this.getStreetStyle(layer.feature));
+      this.layers.streets.eachLayer(layer => { 
+          if (layer.feature) {
+              // Reset stile forzato per togliere eventuali highlight rimasti
+              layer.setStyle(this.getStreetStyle(layer.feature)); 
+          }
       });
     },
 
     resetMarkers() {
-      this.layers.markers.clearLayers();
+      // Rimuovi i marker dalla mappa usando l'array di oggetti Leaflet
+      this.markerObjects.forEach(mk => this.map.removeLayer(mk));
+      this.markerObjects = [];
       this.layers.route.clearLayers();
       this.nodes = [];
       this.routeStats = null;
     },
 
-    // --- 5. GESTIONE SCENARI (DATABASE) ---
-    async fetchScenarios() {
+    // --- UTILITIES (Uguali a prima) ---
+    async searchAddress() {
+      if (!this.searchQuery) return;
       try {
-        const res = await fetch('http://localhost:4000/api/scenarios');
-        if(res.ok) this.scenarios = await res.json();
-      } catch (e) { console.error("Errore fetch scenari", e); }
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(this.searchQuery)}&limit=5`);
+        this.searchResults = await res.json();
+      } catch (e) { alert("Errore ricerca"); }
     },
-
+    flyToLocation(result) {
+        const lat = parseFloat(result.lat); const lon = parseFloat(result.lon);
+        this.map.flyTo([lat, lon], 17, { duration: 1.5 });
+        this.layers.search.clearLayers();
+        L.marker([lat, lon]).addTo(this.layers.search).bindPopup(result.display_name.split(',')[0]).openPopup();
+        this.searchResults = [];
+    },
+    // ... Scenari ...
+    async fetchScenarios() { try { const res = await fetch('http://localhost:4000/api/scenarios'); if(res.ok) this.scenarios = await res.json(); } catch (e) {} },
     async saveScenario() {
-      if (!this.newScenarioName) return alert("Inserisci un nome!");
-      
-      // Controllo duplicati lato client per UX
-      if (this.scenarios.some(s => s.name === this.newScenarioName)) {
-          if(!confirm("Esiste già uno scenario con questo nome. Continuare?")) return;
-      }
-
-      this.isSaving = true;
-      this.saveBtnText = "Salvando...";
-
+      if (!this.newScenarioName) return alert("Inserisci nome");
+      this.isSaving = true; this.saveBtnText = "Wait...";
       try {
-        await fetch('http://localhost:4000/api/scenarios', {
-            method: 'POST', 
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ 
-                name: this.newScenarioName, 
-                closed_ids: this.currentClosedIds 
-            })
-        });
-        
-        // Successo
-        this.newScenarioName = ""; // FIX: Pulisci input
-        await this.fetchScenarios(); // Ricarica lista
-        
-        this.saveBtnText = "✅ Salvato!";
-        setTimeout(() => {
-            this.saveBtnText = "Salva";
-            this.isSaving = false;
-        }, 2000);
-
-      } catch (e) { 
-        alert("Errore salvataggio"); 
-        this.isSaving = false;
-        this.saveBtnText = "Salva";
-      }
+        await fetch('http://localhost:4000/api/scenarios', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ name: this.newScenarioName, closed_ids: this.currentClosedIds }) });
+        this.newScenarioName = ""; await this.fetchScenarios(); this.saveBtnText = "✅"; setTimeout(() => { this.saveBtnText = "Salva"; this.isSaving = false; }, 2000);
+      } catch (e) { this.isSaving = false; }
     },
-
     async loadScenario(id) {
-        const btn = document.activeElement;
-        const originalText = btn.innerText;
-        btn.innerText = "⏳";
-        
-        try {
-            await fetch(`http://localhost:4000/api/scenarios/${id}/apply`, { method: 'POST' });
-            
-            // Aggiorna stato locale
-            const scenario = this.scenarios.find(s => s._id === id);
-            if(scenario) {
-                this.currentClosedIds = scenario.closed_ids;
-                this.closedCount = scenario.closed_ids.length;
-                this.refreshMapStyles();
-                if (this.nodes.length === 2) this.getRoute();
-            }
-        } catch(e) { alert("Errore caricamento"); }
-        
-        btn.innerText = originalText;
+        await fetch(`http://localhost:4000/api/scenarios/${id}/apply`, { method: 'POST' });
+        const s = this.scenarios.find(s => s._id === id);
+        if(s) { this.currentClosedIds = s.closed_ids; this.closedCount = s.closed_ids.length; this.refreshMapStyles(); if(this.nodes.length===2) this.getRoute(); }
     },
-
-    async deleteScenario(id) {
-        if(!confirm("Eliminare definitivamente questo scenario?")) return;
-        await fetch(`http://localhost:4000/api/scenarios/${id}`, { method: 'DELETE' });
-        this.fetchScenarios();
-    },
-
-    // --- 6. UTILITY E FORMATTAZIONE ---
-    formatTime(val) { return val ? `${Math.ceil(val)} min` : "0 min"; },
-    formatDist(val) { return val > 1000 ? `${(val/1000).toFixed(2)} km` : `${Math.round(val || 0)} m`; },
-    formatDate(dateStr) {
-        if(!dateStr) return "";
-        const d = new Date(dateStr);
-        return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
-    }
+    async deleteScenario(id) { if(confirm("Del?")) { await fetch(`http://localhost:4000/api/scenarios/${id}`, { method: 'DELETE' }); this.fetchScenarios(); } },
+    
+    formatTime(val) { return val ? `${Math.ceil(val)} min` : "0"; },
+    formatDist(val) { return val > 1000 ? `${(val/1000).toFixed(2)} km` : `${Math.round(val || 0)} m`; }
   }
 }
 </script>
 
 <style scoped>
-/* Contenitore Mappa */
-.map-container { 
-  position: relative; 
-  width: 100%; 
-  height: 100vh; 
-  font-family: 'Segoe UI', sans-serif;
-}
-
-#map { width: 100%; height: 100%; z-index: 0; background: #e0e0e0; }
-
-/* Pannello Laterale */
-.control-panel { 
-  position: absolute; 
-  top: 10px; 
-  right: 10px; 
-  width: 320px; 
-  background: white; 
-  z-index: 1000; 
-  border-radius: 8px; 
-  padding: 15px; 
-  box-shadow: 0 4px 15px rgba(0,0,0,0.2); 
-  max-height: 90vh; 
-  overflow-y: auto; 
-}
-
+/* STILI GENERALI (Preservati) */
+.map-container { position: relative; width: 100%; height: 100vh; font-family: 'Segoe UI', sans-serif; }
+#map { width: 100%; height: 100%; background: #e0e0e0; }
+.control-panel { position: absolute; top: 10px; right: 10px; width: 340px; background: white; z-index: 1000; border-radius: 8px; padding: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto; }
 .panel-header h3 { margin: 0; color: #2c3e50; font-size: 20px; }
-.subtitle { font-size: 11px; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }
+.subtitle { font-size: 11px; color: #7f8c8d; text-transform: uppercase; }
+
+/* NUOVI STILI LISTA CHIUSURE */
+.section-title { display: flex; justify-content: space-between; align-items: center; font-weight: bold; font-size: 13px; margin: 15px 0 10px; border-bottom: 2px solid #eee; padding-bottom: 5px;}
+.closure-list { list-style: none; padding: 0; margin: 0; max-height: 150px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; }
+.closure-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; border-bottom: 1px solid #f5f5f5; font-size: 13px; }
+.closure-item:last-child { border-bottom: none; }
+.closure-item:hover { background: #fff5f5; }
+.btn-icon { background: none; border: none; cursor: pointer; font-size: 14px; transition: transform 0.2s; }
+.btn-icon:hover { transform: scale(1.2); }
+.del-all { background: #e74c3c; color: white; border: none; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-size: 10px; }
+
+/* SEARCH */
+.search-box-wrapper { display: flex; gap: 5px; }
+.search-input { flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+.btn-search { background: #2c3e50; color: white; border: none; border-radius: 4px; cursor: pointer; padding: 0 10px; }
+.search-results { list-style: none; padding: 0; margin-top: 5px; border: 1px solid #eee; border-radius: 4px; max-height: 120px; overflow-y: auto; }
+.search-results li { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 13px; }
+.search-results li:hover { background: #f0f0f0; }
 
 /* KPI */
-.kpi-container { margin: 15px 0; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
-.kpi-row { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #eee; }
-.kpi-row:last-child { border-bottom: none; }
+.kpi-container { margin: 15px 0; border: 1px solid #ddd; border-radius: 6px; }
+.kpi-row { display: flex; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #eee; }
 .kpi-row.main { background: #f8f9fa; }
 .kpi-row.delta.bad { background: #fee2e2; color: #b91c1c; }
 .kpi-row.delta.good { background: #dcfce7; color: #15803d; }
-.label { font-size: 10px; text-transform: uppercase; font-weight: bold; }
 .values { text-align: right; display: flex; flex-direction: column; }
-.values strong { font-size: 16px; }
+.info-box { font-size: 12px; color: #888; text-align: center; margin: 10px 0; font-style: italic; }
 
-/* Box Info */
-.warning-box { background: #fff3cd; color: #856404; padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 13px; border: 1px solid #ffeeba;}
-.info-box { color: #666; font-size: 12px; margin-bottom: 10px; font-style: italic; text-align: center; }
-
-/* Bottoni Generici */
-.btn { padding: 8px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; width: 100%; font-weight: 600; transition: all 0.2s;}
-.btn-outline-danger { color: #e74c3c; border-color: #e74c3c; background: white; }
-.btn-outline-danger:hover { background: #e74c3c; color: white; }
-.btn-primary { background: #2c3e50; color: white; border: none; }
-.btn-primary:hover { background: #34495e; }
-.btn-primary:disabled { background: #95a5a6; cursor: not-allowed; }
-
-/* Scenario Manager */
-.scenario-manager { margin-top: 15px; }
-.scenario-manager h4 { font-size: 14px; margin-bottom: 10px; color: #34495e; border-bottom: 1px solid #eee; padding-bottom: 5px; }
-.save-form { display: flex; gap: 5px; margin-bottom: 10px; }
-.input-text { flex: 1; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; outline: none; }
-.input-text:focus { border-color: #2c3e50; }
-
-.scenario-list { list-style: none; padding: 0; margin: 0; }
-.scenario-item { background: #f9f9f9; border: 1px solid #eee; border-radius: 4px; padding: 8px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center; }
+/* SCENARI */
+.save-form { display: flex; gap: 5px; margin-bottom: 5px; }
+.input-text { flex: 1; padding: 5px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; }
+.scenario-item { background: #f9f9f9; padding: 8px; margin-bottom: 5px; border-radius: 4px; display: flex; justify-content: space-between; font-size: 13px; border: 1px solid #eee;}
 .scen-info { display: flex; flex-direction: column; }
-.scen-info strong { font-size: 13px; color: #2c3e50; }
-.scen-info small { font-size: 10px; color: #7f8c8d; }
-.scen-actions { display: flex; gap: 5px; }
-.btn-xs { padding: 4px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; border: none; font-weight: bold; }
+.scen-info small { color: #888; font-size: 10px; }
+.btn-primary { background: #2c3e50; color: white; border: none; border-radius: 4px; cursor: pointer; }
+.btn-xs { padding: 2px 6px; border: none; border-radius: 3px; margin-left: 2px; cursor: pointer; font-size: 11px; }
 .btn-xs.load { background: #27ae60; color: white; }
-.btn-xs.del { background: #e74c3c; color: white; }
-.btn-xs:hover { opacity: 0.8; }
-.empty-msg { font-size: 12px; color: #999; text-align: center; margin-top: 10px; }
+.btn-xs.del { background: #c0392b; color: white; }
 </style>
