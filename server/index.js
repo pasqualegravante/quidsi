@@ -1,123 +1,79 @@
 const express = require("express");
-const server = express();
-const path = require("path");
 const axios = require("axios");
 const cors = require("cors");
-const mongoose = require("mongoose"); // Libreria DB
+const mongoose = require("mongoose");
+const path = require("path");
 require("dotenv").config();
 
-const PORT = process.env.PORT || 4000;
-const PYTHON_URL = process.env.PYTHON_URL || "http://127.0.0.1:8000";
-const MONGO_URL = process.env.MONGO_URL || "mongodb://127.0.0.1:27017/quidsi";
+const app = express();
+const PORT = 4000;
+// URL interni alla rete Docker
+const PYTHON_URL = process.env.PYTHON_URL || "http://engine:8000";
+const MONGO_URL = process.env.MONGO_URL || "mongodb://database:27017/quidsi";
 
-// --- CONNESSIONE AL DATABASE ---
+// --- CONNESSIONE DATABASE ---
 mongoose.connect(MONGO_URL)
-  .then(() => console.log("✅ Connesso a MongoDB"))
-  .catch(err => console.error("❌ Errore MongoDB:", err));
+  .then(() => console.log("[INFO] MongoDB Connesso"))
+  .catch(e => console.error("[ERRORE] Connessione DB:", e));
 
-// Definizione dello "Schema" (come sono fatti i dati)
-const ScenarioSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    description: String,
-    closed_ids: [String], // Lista di ID strade chiuse
+// Schema per salvare gli scenari
+const Scenario = mongoose.model("Scenario", new mongoose.Schema({
+    name: String,
+    closed_ids: [String], // Lista ID strade chiuse
     created_at: { type: Date, default: Date.now }
-});
-const Scenario = mongoose.model("Scenario", ScenarioSchema);
+}));
 
-// --- MIDDLEWARE ---
-server.use(cors({ origin: "*" }));
-server.use(express.json());
-server.use(express.static(path.join(__dirname, '../client/dist')));
+// Middleware base
+app.use(cors()); // Permette richieste da origini diverse
+app.use(express.json()); // Parsa i body JSON
+app.use(express.static(path.join(__dirname, '../client/dist'))); // Serve il frontend compilato
 
-// --- API PYTHON PROXY ---
-// (Queste restano uguali per far funzionare la mappa live)
-server.post("/api/calculate-route", async (req, res) => {
+// --- FUNZIONE PROXY ---
+// Inoltra le richieste dal Frontend al motore Python e gestisce gli errori
+const proxy = async (endpoint, req, res) => {
     try {
-        const response = await axios.post(`${PYTHON_URL}/calculate-route`, req.body);
-        res.json(response.data);
-    } catch (error) {
-        res.status(503).json({ error: "Errore Engine Python" });
+        const r = await axios.post(`${PYTHON_URL}${endpoint}`, req.body || {});
+        res.json(r.data);
+    } catch (e) {
+        if (e.response) res.status(e.response.status).json(e.response.data);
+        else res.status(500).json({ error: "Errore comunicazione con Engine Python" });
     }
-});
+};
 
-server.post("/api/toggle-closure/:id", async (req, res) => {
+// --- ROTTE PROXY (Verso Python) ---
+app.post("/api/calculate-route", (req, res) => proxy("/calculate-route", req, res));
+app.post("/api/calculate-isochrone", (req, res) => proxy("/calculate-isochrone", req, res));
+app.post("/api/reset-closures", (req, res) => proxy("/reset-closures", req, res));
+
+app.post("/api/toggle-closure/:id", async (req, res) => {
     try {
-        const response = await axios.post(`${PYTHON_URL}/toggle-closure/${encodeURIComponent(req.params.id)}`);
-        res.json(response.data);
-    } catch (error) { res.status(500).json({ error: "Errore Toggle" }); }
+        const r = await axios.post(`${PYTHON_URL}/toggle-closure/${encodeURIComponent(req.params.id)}`);
+        res.json(r.data);
+    } catch (e) { res.status(500).json({ error: "Errore Toggle" }); }
 });
 
-server.post("/api/reset-closures", async (req, res) => {
-    try {
-        const response = await axios.post(`${PYTHON_URL}/reset-closures`);
-        res.json(response.data);
-    } catch (error) { res.status(500).json({ error: "Errore Reset" }); }
-});
+// --- ROTTE DATABASE (Scenari) ---
+app.get("/api/scenarios", async (req, res) => res.json(await Scenario.find().sort({created_at: -1})));
+app.post("/api/scenarios", async (req, res) => res.json(await Scenario.create(req.body)));
 
-// --- NUOVE API DATABASE (SCENARI) ---
-
-// 1. Salva uno scenario
-server.post("/api/scenarios", async (req, res) => {
-    try {
-        const { name, closed_ids } = req.body;
-        const newScenario = await Scenario.create({ name, closed_ids });
-        res.json(newScenario);
-        console.log(`Scenario salvato: ${name}`);
-    } catch (error) {
-        res.status(500).json({ error: "Errore salvataggio DB" });
-    }
-});
-
-// 2. Ottieni lista scenari
-server.get("/api/scenarios", async (req, res) => {
-    try {
-        const scenarios = await Scenario.find().sort({ created_at: -1 }); // Più recenti prima
-        res.json(scenarios);
-    } catch (error) {
-        res.status(500).json({ error: "Errore lettura DB" });
-    }
-});
-
-// 3. APPLICA uno scenario (Carica e manda a Python)
-server.post("/api/scenarios/:id/apply", async (req, res) => {
-    try {
-        // A. Trova lo scenario nel DB
-        const scenario = await Scenario.findById(req.params.id);
-        if (!scenario) return res.status(404).json({ error: "Scenario non trovato" });
-
-        console.log(`Applicazione scenario: ${scenario.name} (${scenario.closed_ids.length} strade)`);
-
-        // B. Resetta Python (tabula rasa)
-        await axios.post(`${PYTHON_URL}/reset-closures`);
-
-        // C. Riapplica le chiusure una per una
-        // (Nota: in produzione si farebbe un endpoint bulk, ma così è più semplice ora)
-        for (const roadId of scenario.closed_ids) {
-            await axios.post(`${PYTHON_URL}/toggle-closure/${encodeURIComponent(roadId)}`);
-        }
-
-        res.json({ message: "Scenario applicato con successo", scenario });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Errore applicazione scenario" });
-    }
-});
-
-// 4. Elimina scenario
-server.delete("/api/scenarios/:id", async (req, res) => {
+app.delete("/api/scenarios/:id", async (req, res) => {
     await Scenario.findByIdAndDelete(req.params.id);
-    res.json({ message: "Eliminato" });
+    res.json({status: "ok"});
 });
 
-// --- ROUTING FRONTEND ---
-server.all("*", (req, res) => {
-    if (!req.path.startsWith('/api')) {
-        res.sendFile(path.join(__dirname, '../client/dist/index.html'));
-    } else {
-        res.status(404).json({ error: "API non trovata" });
+// Logica per APPLICARE uno scenario
+// 1. Legge lo scenario dal DB
+// 2. Ordina a Python di resettare tutto
+// 3. Ordina a Python di chiudere le strade una per una
+app.post("/api/scenarios/:id/apply", async (req, res) => {
+    const s = await Scenario.findById(req.params.id);
+    if (!s) return res.status(404).json({error: "Scenario non trovato"});
+    
+    await axios.post(`${PYTHON_URL}/reset-closures`);
+    for (const id of s.closed_ids) {
+        await axios.post(`${PYTHON_URL}/toggle-closure/${encodeURIComponent(id)}`);
     }
+    res.json({message: "Applicato", scenario: s});
 });
 
-server.listen(PORT, () => {
-    console.log(`SERVER CON DB ATTIVO SU PORTA: ${PORT}`);
-});
+app.listen(PORT, () => console.log(`[INFO] Server Node avviato su porta ${PORT}`));

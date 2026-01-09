@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # 1. MOTORE PYTHON (Invariato)
+  # 1. MOTORE DI CALCOLO (Python)
   engine:
     build: ./engine
     ports:
@@ -11,17 +11,17 @@ services:
     networks:
       - quidsi-net
 
-  # 2. DATABASE MONGODB (Nuovo!)
+  # 2. DATABASE (MongoDB)
   database:
     image: mongo:latest
     ports:
       - "27017:27017"
     volumes:
-      - mongo-data:/data/db # Persistenza: i dati restano anche se spegni
+      - mongo-data:/data/db
     networks:
       - quidsi-net
 
-  # 3. SERVER NODE (Aggiornato link al db)
+  # 3. BACKEND/MIDDLEWARE (Node.js)
   server:
     build: ./server
     ports:
@@ -31,11 +31,11 @@ services:
       - database
     environment:
       - PYTHON_URL=http://engine:8000
-      - MONGO_URL=mongodb://database:27017/quidsi # URL interno Docker
+      - MONGO_URL=mongodb://database:27017/quidsi
     networks:
       - quidsi-net
 
-  # 4. CLIENT VUE (Invariato)
+  # 4. FRONTEND (Vue.js)
   client:
     build: ./client
     ports:
@@ -53,4 +53,4 @@ networks:
     driver: bridge
 
 volumes:
-  mongo-data: # Volume per salvare i dati del DB
+  mongo-data:

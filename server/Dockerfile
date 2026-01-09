@@ -1,5 +1,4 @@
-# /server/Dockerfile
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 
@@ -8,5 +7,4 @@ RUN npm install
 
 COPY . .
 
-# Avvia il server
 CMD ["node", "index.js"]

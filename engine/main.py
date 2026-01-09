@@ -3,193 +3,188 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import networkx as nx
 import json
-from shapely.geometry import shape
+from shapely.geometry import shape, Point, mapping
+from shapely.ops import unary_union
 from pydantic import BaseModel
 from typing import List
 from urllib.parse import unquote
 import math
+import traceback
 
-# --- VARIABILI GLOBALI ---
+# --- STATO GLOBALE ---
+# G: Il grafo stradale (rete di nodi e archi).
+# closed_streets: Set (lista univoca) degli ID delle strade chiuse.
 G = nx.MultiDiGraph()
 closed_streets = set()
 
-# --- FORMULA HAVERSINE (Geometria Sferica) ---
+# --- FUNZIONI DI SUPPORTO GEOMETRICO ---
+
 def haversine_distance(coord1, coord2):
     """
-    Calcola distanza in metri tra due coordinate (lon, lat) o (lat, lon).
-    L'importante è che l'ordine sia coerente.
+    Calcola la distanza in metri tra due punti (lat, lon) sulla Terra.
+    Necessaria perché la Terra è sferica, non piatta.
     """
-    R = 6371000  # Raggio Terra in metri
-    # Scompattiamo assumendo formato (lat, lon) dato che i nodi sono salvati così
+    R = 6371000  # Raggio della Terra in metri
     lat1, lon1 = coord1
     lat2, lon2 = coord2
-    
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    delta_phi = math.radians(lat2 - lat1)
-    delta_lambda = math.radians(lon2 - lon1)
-    
-    a = math.sin(delta_phi / 2.0) ** 2 + \
-        math.cos(phi1) * math.cos(phi2) * \
-        math.sin(delta_lambda / 2.0) ** 2
-    
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
+    return R * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
 
 def get_geometry_length(geometry):
-    """Calcola lunghezza reale in metri di una geometria GeoJSON"""
+    """
+    Calcola la lunghezza reale di una strada (che può essere curva)
+    sommando la distanza di tutti i suoi piccoli segmenti.
+    """
     coords = list(geometry.coords)
-    total_meters = 0.0
+    total = 0.0
     for i in range(len(coords) - 1):
-        # GeoJSON standard è (lon, lat), la nostra func haversine si adatta
-        # basta passare le tuple coerentemente.
-        # coords[i] è (lon, lat)
-        p1 = (coords[i][1], coords[i][0]) # invertiamo per avere (lat, lon)
-        p2 = (coords[i+1][1], coords[i+1][0])
-        total_meters += haversine_distance(p1, p2)
-    return total_meters
+        # Shapely usa (Lon, Lat), noi invertiamo in (Lat, Lon) per la formula
+        total += haversine_distance((coords[i][1], coords[i][0]), (coords[i+1][1], coords[i+1][0]))
+    return total
 
-# --- LIFESPAN (Avvio/Spegnimento) ---
+# --- LIFESPAN: CARICAMENTO ALL'AVVIO ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global G
     try:
-        print("--- ENGINE AVVIATO: Caricamento Grafo... ---")
+        print("[INFO] Avvio Engine: Caricamento Grafo...")
+        # Carica il file GeoJSON che contiene le strade
         with open('grafo_optimized.geojson', 'r', encoding='utf-8') as f:
             data = json.load(f)
         
+        # Itera su ogni strada del file
         for feature in data['features']:
             p = feature['properties']
             geom = shape(feature['geometry'])
             
-            # ID Univoco
-            raw_id = str(p.get('desvia') or p.get('name') or p.get('id') or p.get('osm_id') or "unknown")
-            road_id = raw_id.strip()
+            # Estrazione ID e proprietà
+            rid = str(p.get('desvia') or p.get('name') or p.get('id') or "unknown").strip()
+            speed = float(p.get('speed', 30)) # Velocità default 30 km/h
+            oneway = str(p.get('oneway') or p.get('sensouni')) == '1'
             
-            speed = float(p.get('speed', 30))
-            is_oneway = str(p.get('oneway') or p.get('sensouni')) == '1'
+            # Calcolo Peso (Costo) dell'arco
+            dist = get_geometry_length(geom)
+            # Tempo (minuti) = (Distanza / Velocità m/s) / 60
+            mins = (dist / (speed/3.6 if speed>0 else 8.3)) / 60.0
             
-            # Calcoli metrici precisi
-            dist_meters = get_geometry_length(geom)
-            speed_ms = speed / 3.6
-            if speed_ms <= 0: speed_ms = 8.3
-            
-            time_minutes = (dist_meters / speed_ms) / 60.0
-
+            # Creazione nodi e archi nel grafo
             coords = list(geom.coords)
             for i in range(len(coords) - 1):
-                # Salviamo i nodi come (LAT, LON) arrotondati per coerenza con Leaflet
                 u = (round(coords[i][1], 5), round(coords[i][0], 5))
                 v = (round(coords[i+1][1], 5), round(coords[i+1][0], 5))
-                
-                G.add_edge(u, v, weight=time_minutes, distance=dist_meters, road_id=road_id)
-                if not is_oneway:
-                    G.add_edge(v, u, weight=time_minutes, distance=dist_meters, road_id=road_id)
+                # Aggiunge l'arco andata
+                G.add_edge(u, v, weight=mins, distance=dist, road_id=rid)
+                # Se non è senso unico, aggiunge anche il ritorno
+                if not oneway:
+                    G.add_edge(v, u, weight=mins, distance=dist, road_id=rid)
                     
-        print(f"✅ Grafo caricato: {G.number_of_nodes()} nodi.")
-        
+        print(f"[OK] Grafo pronto: {G.number_of_nodes()} nodi caricati.")
     except Exception as e:
-        print(f"❌ ERRORE CRITICO: {e}")
-    
+        print(f"[ERRORE] Caricamento fallito: {e}")
     yield
-    G.clear()
+    G.clear() # Pulizia alla chiusura
 
+# Configurazione App e CORS (per permettere chiamate dal browser)
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# --- MODELLI DATI (Input API) ---
 class RouteRequest(BaseModel):
     start: List[float] # [lat, lon]
-    end: List[float]   # [lat, lon]
+    end: List[float]
 
-def get_path_stats(graph, path):
-    total_time = 0
-    total_dist = 0
+class IsochroneRequest(BaseModel):
+    center: List[float]
+    minutes: float
+
+def get_stats(graph, path):
+    """Calcola tempo totale e distanza totale di un percorso dato."""
+    t, d = 0, 0
     for i in range(len(path) - 1):
         u, v = path[i], path[i+1]
-        edge_data = graph[u][v][0] 
-        
-        # Calcolo preciso distanza tra i due nodi del segmento
-        segment_dist = haversine_distance(u, v)
-        total_dist += segment_dist
-        
-        # Stima tempo proporzionale
-        # (Peso Totale Arco * (Lunghezza Segmento / Lunghezza Totale Arco))
-        edge_len = max(1, edge_data.get('distance', 1))
-        total_time += edge_data.get('weight', 0) * (segment_dist / edge_len)
+        edge = graph[u][v][0]
+        seg_dist = haversine_distance(u, v)
+        d += seg_dist
+        # Tempo proporzionale alla lunghezza del segmento
+        t += edge.get('weight', 0) * (seg_dist / max(1, edge.get('distance', 1)))
+    return t, d
 
-    return total_time, total_dist
-
+# --- API 1: CALCOLO PERCORSO ---
 @app.post("/calculate-route")
 async def calculate_route(req: RouteRequest):
-    if G.number_of_nodes() == 0:
-        raise HTTPException(status_code=500, detail="Grafo non caricato")
-
-    # 1. TROVA I NODI PIÙ VICINI (Snapping Logic)
-    # Cerca il nodo nel grafo che ha la distanza euclidea minore dal click
     try:
+        # 1. Snapping: Trova il nodo del grafo più vicino al punto cliccato
         s_node = min(G.nodes, key=lambda n: (n[0]-req.start[0])**2 + (n[1]-req.start[1])**2)
         e_node = min(G.nodes, key=lambda n: (n[0]-req.end[0])**2 + (n[1]-req.end[1])**2)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Coordinate non valide")
+        
+        # 2. Percorso Ideale (Senza traffico/blocchi)
+        try:
+            p_ideal = nx.shortest_path(G, s_node, e_node, weight='weight')
+            t_ideal, d_ideal = get_stats(G, p_ideal)
+        except: raise HTTPException(404, "Destinazione irraggiungibile nel grafo ideale")
 
-    # 2. CALCOLO IDEALE
-    try:
-        path_ideal = nx.shortest_path(G, source=s_node, target=e_node, weight='weight')
-        time_ideal, dist_ideal = get_path_stats(G, path_ideal)
-    except nx.NetworkXNoPath:
-        raise HTTPException(status_code=404, detail="Destinazione irraggiungibile")
+        # 3. Percorso Reale (Considerando le chiusure)
+        # Filtro: Include l'arco solo se il suo ID NON è nella lista chiusure
+        def flt(u, v, k): 
+            return G[u][v][k].get('road_id', '') not in closed_streets
+            
+        view = nx.subgraph_view(G, filter_edge=flt)
+        
+        try:
+            p_real = nx.shortest_path(view, s_node, e_node, weight='weight')
+            t_real, d_real = get_stats(G, p_real)
+        except: 
+            raise HTTPException(404, "Percorso bloccato dalle chiusure")
 
-    # 3. CALCOLO REALE (Con Chiusure)
-    def filter_edges(u, v, k):
-        return G[u][v][k]['road_id'] not in closed_streets
-
-    view = nx.subgraph_view(G, filter_edge=filter_edges)
-    
-    try:
-        path_real = nx.shortest_path(view, source=s_node, target=e_node, weight='weight')
-        time_real, dist_real = get_path_stats(G, path_real)
-    except nx.NetworkXNoPath:
-        # Se bloccato, restituiamo comunque lo snapping ma senza percorso
-        raise HTTPException(status_code=404, detail="Percorso bloccato dai cantieri")
-
-    # 4. RISPOSTA
-    delta_time = max(0, time_real - time_ideal)
-    delta_dist = max(0, dist_real - dist_ideal)
-
-    return {
-        "path": [list(n) for n in path_real],
-        # NUOVO: Restituiamo i punti esatti dove ci siamo agganciati
-        "snapped_points": {
-            "start": list(s_node),
-            "end": list(e_node)
-        },
-        "stats": {
-            "ideal": {"time": time_ideal, "dist": dist_ideal},
-            "real":  {"time": time_real,  "dist": dist_real},
-            "delta": {"time": delta_time, "dist": delta_dist}
+        return {
+            "path": [list(n) for n in p_real],
+            "snapped_points": {"start": list(s_node), "end": list(e_node)},
+            "stats": {
+                "ideal": {"time": t_ideal, "dist": d_ideal},
+                "real": {"time": t_real, "dist": d_real},
+                "delta": {"time": max(0, t_real-t_ideal), "dist": max(0, d_real-d_ideal)}
+            }
         }
-    }
+    except HTTPException as he: raise he
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(500, str(e))
 
+# --- API 2: CALCOLO ISOCRONA ---
+@app.post("/calculate-isochrone")
+async def calculate_isochrone(req: IsochroneRequest):
+    try:
+        # Trova il nodo centrale
+        center = min(G.nodes, key=lambda n: (n[0]-req.center[0])**2 + (n[1]-req.center[1])**2)
+        
+        # Filtra le strade chiuse (l'isocrona deve fermarsi se la strada è chiusa)
+        def flt(u, v, k): return G[u][v][k].get('road_id', '') not in closed_streets
+        view = nx.subgraph_view(G, filter_edge=flt)
+        
+        # Algoritmo Ego Graph: Trova tutti i nodi entro X minuti
+        sub = nx.ego_graph(view, center, radius=req.minutes, distance='weight')
+        if len(sub.nodes) < 2: return {"type": "FeatureCollection", "features": []}
+        
+        # Crea il poligono unendo i buffer dei punti trovati
+        pts = [Point(n[1], n[0]) for n in sub.nodes]
+        poly = unary_union([p.buffer(0.0025) for p in pts]) # Buffer ~200 metri
+        return mapping(poly)
+    except Exception as e:
+        traceback.print_exc()
+        raise HTTPException(500, str(e))
+
+# --- API 3: GESTIONE CHIUSURE ---
 @app.post("/toggle-closure/{road_id}")
-async def toggle_closure(road_id: str):
-    clean_id = unquote(road_id).strip()
-    if clean_id in closed_streets:
-        closed_streets.remove(clean_id)
-    else:
-        closed_streets.add(clean_id)
+async def toggle(road_id: str):
+    rid = unquote(road_id).strip()
+    if rid in closed_streets: closed_streets.remove(rid)
+    else: closed_streets.add(rid)
     return {"closed_count": len(closed_streets), "currently_closed": list(closed_streets)}
 
 @app.post("/reset-closures")
-async def reset_closures():
+async def reset():
     closed_streets.clear()
     return {"status": "ok"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
