@@ -3,99 +3,121 @@ const server = express();
 const path = require("path");
 const axios = require("axios");
 const cors = require("cors");
+const mongoose = require("mongoose"); // Libreria DB
 require("dotenv").config();
 
 const PORT = process.env.PORT || 4000;
-
-// --- CONFIGURAZIONE INTELLIGENTE (DOCKER VS LOCALHOST) ---
-// Se siamo in Docker (tramite docker-compose), userà "http://engine:8000"
-// Se siamo in locale, userà "http://127.0.0.1:8000"
 const PYTHON_URL = process.env.PYTHON_URL || "http://127.0.0.1:8000";
+const MONGO_URL = process.env.MONGO_URL || "mongodb://127.0.0.1:27017/quidsi";
+
+// --- CONNESSIONE AL DATABASE ---
+mongoose.connect(MONGO_URL)
+  .then(() => console.log("✅ Connesso a MongoDB"))
+  .catch(err => console.error("❌ Errore MongoDB:", err));
+
+// Definizione dello "Schema" (come sono fatti i dati)
+const ScenarioSchema = new mongoose.Schema({
+    name: { type: String, required: true },
+    description: String,
+    closed_ids: [String], // Lista di ID strade chiuse
+    created_at: { type: Date, default: Date.now }
+});
+const Scenario = mongoose.model("Scenario", ScenarioSchema);
 
 // --- MIDDLEWARE ---
-server.use(cors({ origin: "*" })); // Permette connessioni da qualsiasi origine (utile per Docker/Dev)
-server.use(express.json());        // Per leggere i JSON in arrivo
-server.use(express.static(path.join(__dirname, '../client/dist'))); // Serve i file statici di Vue
+server.use(cors({ origin: "*" }));
+server.use(express.json());
+server.use(express.static(path.join(__dirname, '../client/dist')));
 
-// --- API ROUTES (PROXY VERSO PYTHON) ---
-
-/**
- * 1. Calcolo del Percorso
- * Inoltra la richiesta al motore Python.
- */
+// --- API PYTHON PROXY ---
+// (Queste restano uguali per far funzionare la mappa live)
 server.post("/api/calculate-route", async (req, res) => {
     try {
-        console.log(`[NODE] Richiesta calcolo verso: ${PYTHON_URL}/calculate-route`);
-        
         const response = await axios.post(`${PYTHON_URL}/calculate-route`, req.body);
         res.json(response.data);
-        
     } catch (error) {
-        console.error("[NODE] Errore connessione Python:", error.message);
-        // Se Python è giù, diamo un errore chiaro
-        res.status(503).json({ 
-            error: "Il motore di calcolo non è raggiungibile.",
-            details: error.message 
-        });
+        res.status(503).json({ error: "Errore Engine Python" });
     }
 });
 
-/**
- * 2. Gestione Chiusura Strada
- * Inoltra l'ID della strada da chiudere/aprire.
- */
 server.post("/api/toggle-closure/:id", async (req, res) => {
     try {
-        // encodeURIComponent è importante se l'ID contiene spazi o caratteri speciali
-        const roadId = encodeURIComponent(req.params.id);
-        const targetUrl = `${PYTHON_URL}/toggle-closure/${roadId}`;
-        
-        console.log(`[NODE] Toggle chiusura su: ${targetUrl}`);
-        
-        const response = await axios.post(targetUrl);
+        const response = await axios.post(`${PYTHON_URL}/toggle-closure/${encodeURIComponent(req.params.id)}`);
         res.json(response.data);
-        
-    } catch (error) {
-        console.error("[NODE] Errore toggle:", error.message);
-        res.status(500).json({ error: "Errore nell'aggiornamento dello scenario." });
-    }
+    } catch (error) { res.status(500).json({ error: "Errore Toggle" }); }
 });
 
-/**
- * 3. Reset Totale
- * Riapre tutte le strade.
- */
 server.post("/api/reset-closures", async (req, res) => {
     try {
         const response = await axios.post(`${PYTHON_URL}/reset-closures`);
         res.json(response.data);
+    } catch (error) { res.status(500).json({ error: "Errore Reset" }); }
+});
+
+// --- NUOVE API DATABASE (SCENARI) ---
+
+// 1. Salva uno scenario
+server.post("/api/scenarios", async (req, res) => {
+    try {
+        const { name, closed_ids } = req.body;
+        const newScenario = await Scenario.create({ name, closed_ids });
+        res.json(newScenario);
+        console.log(`Scenario salvato: ${name}`);
     } catch (error) {
-        console.error("[NODE] Errore reset:", error.message);
-        res.status(500).json({ error: "Errore nel reset." });
+        res.status(500).json({ error: "Errore salvataggio DB" });
     }
 });
 
-// --- FRONTEND ROUTING ---
-
-// Rotta di benvenuto API
-server.get("/", (req, res) => {
-    res.send("QuidSI API Gateway è attivo.");
+// 2. Ottieni lista scenari
+server.get("/api/scenarios", async (req, res) => {
+    try {
+        const scenarios = await Scenario.find().sort({ created_at: -1 }); // Più recenti prima
+        res.json(scenarios);
+    } catch (error) {
+        res.status(500).json({ error: "Errore lettura DB" });
+    }
 });
 
-// Gestione SPA (Single Page Application)
-// Qualsiasi richiesta che non sia /api/... viene gestita da Vue (index.html)
+// 3. APPLICA uno scenario (Carica e manda a Python)
+server.post("/api/scenarios/:id/apply", async (req, res) => {
+    try {
+        // A. Trova lo scenario nel DB
+        const scenario = await Scenario.findById(req.params.id);
+        if (!scenario) return res.status(404).json({ error: "Scenario non trovato" });
+
+        console.log(`Applicazione scenario: ${scenario.name} (${scenario.closed_ids.length} strade)`);
+
+        // B. Resetta Python (tabula rasa)
+        await axios.post(`${PYTHON_URL}/reset-closures`);
+
+        // C. Riapplica le chiusure una per una
+        // (Nota: in produzione si farebbe un endpoint bulk, ma così è più semplice ora)
+        for (const roadId of scenario.closed_ids) {
+            await axios.post(`${PYTHON_URL}/toggle-closure/${encodeURIComponent(roadId)}`);
+        }
+
+        res.json({ message: "Scenario applicato con successo", scenario });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Errore applicazione scenario" });
+    }
+});
+
+// 4. Elimina scenario
+server.delete("/api/scenarios/:id", async (req, res) => {
+    await Scenario.findByIdAndDelete(req.params.id);
+    res.json({ message: "Eliminato" });
+});
+
+// --- ROUTING FRONTEND ---
 server.all("*", (req, res) => {
     if (!req.path.startsWith('/api')) {
         res.sendFile(path.join(__dirname, '../client/dist/index.html'));
     } else {
-        res.status(404).json({ error: "Endpoint API non trovato." });
+        res.status(404).json({ error: "API non trovata" });
     }
 });
 
-// --- AVVIO SERVER ---
 server.listen(PORT, () => {
-    console.log(`=================================================`);
-    console.log(`NODE SERVER ATTIVO SULLA PORTA: ${PORT}`);
-    console.log(`COLLEGATO AL MOTORE PYTHON SU:  ${PYTHON_URL}`);
-    console.log(`=================================================`);
+    console.log(`SERVER CON DB ATTIVO SU PORTA: ${PORT}`);
 });
