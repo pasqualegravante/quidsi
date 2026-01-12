@@ -1,56 +1,69 @@
 version: '3.8'
 
 services:
-  # 1. MOTORE DI CALCOLO (Python)
+  # --- SERVIZIO BACKEND (Python/FastAPI) ---
   engine:
-    build: ./engine
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./engine:/app
-    networks:
-      - quidsi-net
-
-  # 2. DATABASE (MongoDB)
-  database:
-    image: mongo:latest
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo-data:/data/db
-    networks:
-      - quidsi-net
-
-  # 3. BACKEND/MIDDLEWARE (Node.js)
-  server:
-    build: ./server
+    # Costruisce l'immagine partendo dal Dockerfile nella cartella engine
+    build: 
+      context: ./engine
+      dockerfile: Dockerfile
+    container_name: quid-engine
+    
+    # Mappatura Porte: [Porta PC Host]:[Porta Interna Container]
+    # Uvicorn gira sulla 4000 internamente, noi la esponiamo sulla 4000 esterna
     ports:
       - "4000:4000"
+    
+    # Volume: Sincronizza la cartella locale ./engine con /app nel container
+    # Permette il 'hot-reload' del codice Python senza riavviare Docker
+    volumes:
+      - ./engine:/app
+    
+    # Variabili d'ambiente
+    environment:
+      # URL di connessione al servizio mongo definito sotto
+      - MONGO_URL=mongodb://database:27017
+    
+    # Ordine di avvio: attende che il DB sia pronto
+    depends_on:
+      - database
+    
+    command: python main.py 
+
+  # --- SERVIZIO DATABASE (MongoDB) ---
+  database:
+    image: mongo:latest
+    container_name: quid-mongo
+    ports:
+      - "27017:27017" # Accessibile anche da PC per debug (es. MongoDB Compass)
+    # Persistenza dati: i dati del DB sopravvivono al riavvio del container
+    volumes:
+      - mongo-data:/data/db
+
+  # --- SERVIZIO FRONTEND (Vue.js / Vite) ---
+  client:
+    build: 
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: quid-client
+    ports:
+      - "5173:5173" # Porta standard di sviluppo Vite
+    
+    # Volumi per hot-reload del frontend
+    volumes:
+      - ./client:/app          # Codice sorgente sincronizzato
+      - /app/node_modules      # ESCLUSIONE: Usa i moduli compilati nel container, non quelli di Windows
+    
+    # Variabili d'ambiente per il client
+    environment:
+      - VITE_API_URL=http://localhost:4000
+    
     depends_on:
       - engine
-      - database
-    environment:
-      - PYTHON_URL=http://engine:8000
-      - MONGO_URL=mongodb://database:27017/quidsi
-    networks:
-      - quidsi-net
+    
+    # Comando di avvio con flag --host per esporre la rete fuori dal container
+    command: npm run dev -- --host 
 
-  # 4. FRONTEND (Vue.js)
-  client:
-    build: ./client
-    ports:
-      - "5173:5173"
-    environment:
-      - CHOKIDAR_USEPOLLING=true
-    volumes:
-      - ./client:/app
-      - /app/node_modules
-    networks:
-      - quidsi-net
-
-networks:
-  quidsi-net:
-    driver: bridge
-
+# Definizione volumi persistenti
 volumes:
   mongo-data:
