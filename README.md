@@ -1,31 +1,58 @@
-# QuidSI - Decision Support System (v3.0)
+# QuidEngine: Advanced Urban Routing System
 
-Sistema di Supporto Decisionale (DSS) basato su GIS per l'analisi del traffico, il calcolo dei percorsi ottimali e l'analisi di copertura (isocrone) in tempo reale.
+QuidEngine è una piattaforma enterprise per il calcolo di percorsi urbani ottimizzati, analisi isocrone e simulazione di scenari di traffico.
+Utilizza un motore fisico custom per calcolare i tempi di percorrenza basandosi sulla tortuosità delle strade (curve) e sulla densità degli incroci, offrendo stime più realistiche rispetto ai navigatori tradizionali.
 
-## Funzionalità Principali
+## 🚀 Features Principali
 
-* **Routing Intelligente:** Calcolo percorso A -> B con confronto tra scenario ideale e reale (strade chiuse).
-* **Analisi Copertura (Isocrone):** Visualizzazione delle aree raggiungibili in X minuti da un punto specifico.
-* **Gestione Blocchi Stradali:** Possibilità di chiudere/aprire strade in tempo reale con ricalcolo immediato.
-* **Scenari:** Salvataggio e caricamento di configurazioni di chiusura strade su Database.
-* **Ricerca Indirizzi:** Geocoding integrato tramite OpenStreetMap.
+* **Fisica di Guida Realistica:** Algoritmo proprietario che penalizza strade sinuose e incroci frequenti.
+* **Gestione Traffico Dinamica:** Simulazione live di 4 livelli di intensità (Low, Medium, High, Jam) con ricalcolo immediato dei percorsi.
+* **Scenario Manager:** Salvataggio, caricamento e applicazione di scenari di chiusura strade (es. "Mercato del Giovedì", "Lavori Corso Roma").
+* **Analisi Isocrone:** Visualizzazione delle aree raggiungibili in X minuti, influenzate dal traffico attuale.
+* **Architettura Resiliente:** Backend Python progettato per non crashare anche in caso di down del Database.
 
-##  Architettura
+## 🛠 Tech Stack
 
-Il sistema è basato su **Microservizi** orchestrati tramite Docker:
+* **Backend:** Python 3.9, FastAPI, NetworkX (Graph Theory), Shapely (Geometry).
+* **Frontend:** Vue.js 3, Vite, Leaflet (Mappe interattive).
+* **Database:** MongoDB (Persistenza Scenari).
+* **Infrastructure:** Docker & Docker Compose.
 
-1.  **Client (Vue.js + Leaflet):** Interfaccia utente interattiva.
-2.  **Server (Node.js + Express):** API Gateway e gestione persistenza dati.
-3.  **Engine (Python + NetworkX + Shapely):** Motore di calcolo grafo, pathfinding e geometria spaziale.
-4.  **Database (MongoDB):** Storage persistente per gli scenari.
+## 📦 Installazione e Avvio
 
-## Installazione e Avvio
+Assicurati di avere Docker e Docker Compose installati.
 
-Prerequisiti: [Docker Desktop](https://www.docker.com/products/docker-desktop/) installato.
+1.  **Clona il repository:**
+    ```bash
+    git clone [https://github.com/tuo-user/quid-engine.git](https://github.com/tuo-user/quid-engine.git)
+    cd quid-engine
+    ```
 
-1.  Clona il repository.
-2.  Assicurati di avere il file `grafo_optimized.geojson` nella cartella `/engine`.
-3.  Esegui il comando di avvio:
+2.  **Avvia i container:**
+    ```bash
+    docker-compose up --build
+    ```
 
-```bash
-docker-compose up --build
+3.  **Accedi:**
+    * Frontend: `http://localhost:5173`
+    * API Docs: `http://localhost:4000/docs`
+
+## 📖 Utilizzo API
+
+L'API è auto-documentata via Swagger. Alcuni endpoint chiave:
+
+* `POST /api/calculate-route`: Calcola percorso A -> B.
+* `POST /api/set-traffic/{level}`: Imposta traffico (low, medium, high, jam).
+* `POST /api/toggle-closure/{id}`: Chiude una strada specifica.
+* `GET /api/scenarios`: Lista scenari salvati.
+
+## 🔧 Struttura Progetto
+
+```text
+/engine          # Backend Python
+  ├── main.py    # Core logic (Routing, Physics, API)
+  └── Dockerfile
+/client          # Frontend Vue
+  ├── src/components/MapGraph.vue
+  └── Dockerfile
+docker-compose.yml
