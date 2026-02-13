@@ -1,94 +1,191 @@
 <template>
-  <div id="map" ref="mapContainer" style="height: 100%; width: 100%;"></div>
+  <div class="map-wrapper">
+    <div id="map" ref="mapContainer"></div>
+    
+    <div v-if="loading" class="map-loader">
+      Caricamento rete viaria...
+    </div>
+  </div>
 </template>
 
 <script>
+/**
+ * @component MapGraph
+ * @description Gestisce l'integrazione con Leaflet.js per la visualizzazione della rete stradale.
+ * Include logica per la riproiezione delle coordinate e l'interazione spaziale con il grafo.
+ */
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import proj4 from 'proj4';
+
+/** * Definizioni CRS (Coordinate Reference System):
+ * Il grafo originale è in EPSG:25832 (UTM 32N), le mappe web richiedono EPSG:4326.
+ */
+const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
+const WGS84 = "EPSG:4326";
 
 export default {
   name: 'MapGraph',
-  emits: ['select-node', 'select-edge'],
+  emits: ['select-edge'], // Notifica al componente padre la selezione di un arco
   data() {
     return {
-      map: null,
-      nodes: [],
-      edges: [],
-      markers: [],
-      polylines: [],
-      lastNodeId: null
+      map: null,          // Istanza principale della mappa
+      graphLayer: null,   // Layer contenente le geometrie del grafo
+      lastSelected: null, // Riferimento all'ultimo elemento evidenziato
+      loading: false      // Stato del processo di caricamento
     };
   },
   mounted() {
-    this.map = L.map(this.$refs.mapContainer).setView([46.0665, 11.1216], 14);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(this.map);
-    this.map.on('click', this.addNode);
+    this.initMap();
+    this.loadGraph();
   },
   methods: {
-    addNode(e) {
-      const nodeId = this.nodes.length + 1;
-      const node = { id: nodeId, lat: e.latlng.lat, lng: e.latlng.lng };
-      this.nodes.push(node);
+    /**
+     * Inizializza la mappa Leaflet, imposta i limiti visivi e il tema grafico.
+     */
+    initMap() {
+      // Inizializziamo senza zoom control per posizionarlo manualmente in basso
+      this.map = L.map(this.$refs.mapContainer, {
+        zoomControl: false 
+      }).setView([46.0665, 11.1216], 14);
 
-      const marker = L.marker([node.lat, node.lng])
-        .addTo(this.map)
-        .bindPopup(`Nodo ${nodeId}`)
-        .on('click', () => this.$emit('select-node', node));
+      // Caricamento layer cartografico di base (OpenStreetMap)
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(this.map);
 
-      this.markers.push(marker);
+      // Posizionamento asimmetrico dello zoom per evitare overlap con la UI laterale
+      L.control.zoom({ position: 'bottomleft' }).addTo(this.map);
+    },
 
-      if (this.lastNodeId !== null) {
-        const fromNode = this.nodes.find(n => n.id === this.lastNodeId);
-        const edge = { from: fromNode.id, to: node.id, length: this.calculateDistance(fromNode, node) };
-        this.edges.push(edge);
+    /**
+     * Carica asincronamente il file GeoJSON e applica la proiezione cartografica.
+     */
+    async loadGraph() {
+      this.loading = true;
+      try {
+        // Fetch del dataset dalla directory statica public
+        const response = await fetch('/grafo_web.geojson'); 
+        if (!response.ok) throw new Error("File GeoJSON non trovato nella root");
+        
+        const data = await response.json();
 
-        const polyline = L.polyline([[fromNode.lat, fromNode.lng], [node.lat, node.lng]], { color: 'blue' })
-          .addTo(this.map)
-          .on('click', () => this.$emit('select-edge', edge));
+        // Rendering del grafo con trasformazione delle coordinate UTM -> Lat/Lon
+        this.graphLayer = L.geoJSON(data, {
+          coordsToLatLng: (coords) => {
+            const transformed = proj4(UTM_32N, WGS84, [coords[0], coords[1]]);
+            return [transformed[1], transformed[0]]; // Inversione X/Y per standard Leaflet
+          },
+          // Logica di stile: differenziazione cromatica basata sul senso di marcia
+          style: (feature) => ({
+            // Blu per senso unico, Grigio per doppio senso
+            color: feature.properties.sensouni === 1 ? '#2980b9' : '#7f8c8d',
+            weight: 3,
+            opacity: 0.6,
+            lineJoin: 'round'
+          }),
+          onEachFeature: (feature, layer) => {
+            // Gestione dell'interattività al click sull'arco
+            layer.on('click', (e) => {
+              L.DomEvent.stopPropagation(e); // Previene il bubbling sulla mappa
+              this.highlight(layer);
+              
+              // Emissione dell'evento con payload dei metadati tecnici
+              this.$emit('select-edge', {
+                id: feature.properties.codice,
+                street: feature.properties.desvia,
+                oneWay: feature.properties.sensouni,
+                fullData: feature.properties
+              });
+            });
+          }
+        }).addTo(this.map);
 
-        this.polylines.push(polyline);
+      } catch (err) {
+        console.error("GIS Engine Error:", err);
+      } finally {
+        this.loading = false;
       }
-
-      this.lastNodeId = nodeId;
     },
-    calculateDistance(nodeA, nodeB) {
-      const R = 6371000;
-      const φ1 = nodeA.lat * Math.PI/180;
-      const φ2 = nodeB.lat * Math.PI/180;
-      const Δφ = (nodeB.lat - nodeA.lat) * Math.PI/180;
-      const Δλ = (nodeB.lng - nodeA.lng) * Math.PI/180;
-      const a = Math.sin(Δφ/2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
+
+    /**
+     * Evidenzia graficamente l'elemento selezionato salvando lo stato precedente.
+     * @param {L.Layer} layer - Layer geometrico selezionato.
+     */
+    highlight(layer) {
+      // Reset dello stile dell'elemento precedentemente attivo
+      if (this.lastSelected) {
+        this.graphLayer.resetStyle(this.lastSelected);
+      }
+      
+      // Applicazione stile di selezione "Highlighter" arancione
+      layer.setStyle({
+        color: '#e67e22',
+        weight: 6,
+        opacity: 1
+      });
+      
+      this.lastSelected = layer;
     },
-    clearSelection() {
-  // Reset selezione
-  this.$emit('select-node', null);
-  this.$emit('select-edge', null);
 
-  // Rimuove tutti i marker dalla mappa
-  this.markers.forEach(marker => this.map.removeLayer(marker));
-  this.markers = [];
-
-  // Rimuove tutte le polilinee dalla mappa
-  this.polylines.forEach(polyline => this.map.removeLayer(polyline));
-  this.polylines = [];
-
-  // Reset nodi e archi
-  this.nodes = [];
-  this.edges = [];
-  this.lastNodeId = null;
-}
-
+    /**
+     * Rimuove l'evidenziazione corrente (chiamato esternamente alla chiusura sidebar).
+     */
+    reset() {
+      if (this.lastSelected) {
+        this.graphLayer.resetStyle(this.lastSelected);
+      }
+      this.lastSelected = null;
+    }
   }
 };
 </script>
 
-<style>
-#map {
-  height: 100%;
+<style scoped>
+/* Struttura contenitiva */
+.map-wrapper {
+  position: relative;
   width: 100%;
+  height: 100%;
+}
+
+#map {
+  width: 100%;
+  height: 100%;
+  background: #fdfdfd;
+}
+
+/* UI di caricamento */
+.map-loader {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 255, 255, 0.95);
+  padding: 15px 25px;
+  border-radius: 4px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  z-index: 1500;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #0a192f;
+  text-transform: uppercase;
+}
+
+/* Override stili Leaflet per look moderno */
+:deep(.leaflet-control-zoom) {
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+  margin-bottom: 30px !important;
+  margin-left: 20px !important;
+}
+
+:deep(.leaflet-control-zoom-in), 
+:deep(.leaflet-control-zoom-out) {
+  background: white !important;
+  color: #333 !important;
+  border: 1px solid #eee !important;
+  font-weight: bold !important;
 }
 </style>
