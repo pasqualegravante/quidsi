@@ -10,25 +10,21 @@
         </header>
 
         <div class="fs-grid">
-          
           <div class="fs-card">
             <h3>Gestione Progetti</h3>
             <p>Carica o salva scenari di viabilità predefiniti per analisi comparative.</p>
             <button class="fs-btn">NUOVO SCENARIO</button>
           </div>
-
           <div class="fs-card">
             <h3>Hub Esportazione</h3>
-            <p>Genera report PDF dettagliati o esporta la rete in formato Shapefile/GeoJSON.</p>
+            <p>Genera report PDF dettagliati o esporta la rete in formato Shapefile.</p>
             <button class="fs-btn">CONFIGURA REPORT</button>
           </div>
-
           <div class="fs-card">
             <h3>Parametri Algoritmo</h3>
-            <p>Configura i pesi (impedenze) per il calcolo dei cammini minimi tramite Dijkstra.</p>
+            <p>Configura i pesi per il calcolo dei cammini minimi tramite Dijkstra.</p>
             <button class="fs-btn">IMPOSTA PESI</button>
           </div>
-
         </div>
       </div>
     </div>
@@ -37,137 +33,35 @@
 
 <script>
 /**
- * @component FullscreenMenu
- * @description Gestisce l'interfaccia di gestione globale del DSS. 
- * Fornisce un ambiente isolato per configurazioni che non richiedono l'interazione diretta con la mappa.
+ * @file FullscreenMenu.vue
+ * @description Modulo Amministrativo del DSS (Overlay System).
+ * In futuro ospiterà i form per la gestione del token JWT, le configurazioni di 
+ * sistema (pesi del grafo) e le opzioni di salvataggio/ripristino scenari (LocalStorage/DB).
  */
 export default {
   name: 'FullscreenMenu',
-  props: {
-    /** * @property {Boolean} isOpen 
-     * Determina la visibilità dell'overlay tramite il sistema di transizioni di Vue.
-     */
-    isOpen: {
-      type: Boolean,
-      required: true
-    }
+  props: { 
+    /** Controlla la visibilità modale (Glassmorphism) */
+    isOpen: { type: Boolean, required: true } 
   },
-  emits: ['close'] // Segnala al padre la volontà di chiudere l'overlay
+  emits: ['close']
 }
 </script>
 
 <style scoped>
-/** * STILE OVERLAY E GLASSMORPHISM
- * Utilizzo di backdrop-filter per mantenere il contesto della mappa in sottofondo.
- */
-.fs-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  /* Palette scura istituzionale con opacità elevata */
-  background: rgba(10, 25, 47, 0.98);
-  color: white;
-  z-index: 2000; /* Priorità assoluta sopra ogni altro elemento UI */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(10px); /* Effetto sfocatura per profondità visiva */
-}
-
-/* Posizionamento del comando di uscita */
-.close-fs {
-  position: absolute;
-  top: 30px;
-  right: 40px;
-  background: none;
-  border: 1px solid white;
-  color: white;
-  padding: 10px 20px;
-  cursor: pointer;
-  font-weight: bold;
-  letter-spacing: 1px;
-  transition: all 0.2s ease;
-}
-
-.close-fs:hover {
-  background: white;
-  color: #0a192f;
-}
-
-.fs-content {
-  width: 80%;
-  max-width: 1200px;
-  text-align: center;
-}
-
-.fs-header {
-  margin-bottom: 60px;
-}
-
-.fs-header h1 {
-  font-size: 3rem;
-  letter-spacing: 4px;
-  font-weight: 900;
-  text-transform: uppercase;
-}
-
-/** * LAYOUT GRID PER FUNZIONALITÀ
- * Struttura a tre colonne per una lettura rapida dei moduli.
- */
-.fs-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 30px;
-}
-
-/* Card modulari con feedback all'hover */
-.fs-card {
-  background: rgba(255,255,255,0.05);
-  padding: 40px;
-  border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.1);
-  transition: transform 0.3s ease, background 0.3s ease;
-}
-
-.fs-card:hover {
-  background: rgba(255,255,255,0.1);
-  transform: translateY(-5px);
-}
-
-.fs-card h3 {
-  margin-top: 0;
-  color: #00d4ff; /* Colore d'accento per i titoli dei moduli */
-  letter-spacing: 1px;
-}
-
-.fs-card p {
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: #ccc;
-  min-height: 3rem;
-}
-
-.fs-btn {
-  margin-top: 20px;
-  width: 100%;
-  padding: 12px;
-  background: #004dcf;
-  color: white;
-  border: none;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-/* Animazioni di transizione (Vue Transition API) */
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.5s ease;
-}
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-}
+.fs-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.95); color: white; z-index: 3000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); }
+.close-fs { position: absolute; top: 30px; right: 40px; background: none; border: 1px solid white; color: white; padding: 10px 20px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+.close-fs:hover { background: white; color: #0f172a; }
+.fs-content { width: 80%; max-width: 1200px; text-align: center; }
+.fs-header { margin-bottom: 60px; }
+.fs-header h1 { font-size: 3rem; letter-spacing: 4px; font-weight: 900; margin-bottom: 10px; }
+.fs-header p { color: #94a3b8; font-size: 1.2rem; }
+.fs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
+.fs-card { background: rgba(255,255,255,0.05); padding: 40px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); transition: transform 0.3s ease; text-align: left; }
+.fs-card:hover { transform: translateY(-5px); background: rgba(255,255,255,0.08); }
+.fs-card h3 { color: #3b82f6; margin-top: 0; margin-bottom: 15px; font-size: 1.4rem; }
+.fs-card p { font-size: 0.9rem; line-height: 1.6; color: #cbd5e1; min-height: 3rem; }
+.fs-btn { margin-top: 20px; width: 100%; padding: 12px; background: #2563eb; color: white; border: none; font-weight: bold; cursor: pointer; border-radius: 6px; }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.4s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
