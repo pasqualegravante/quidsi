@@ -57,7 +57,7 @@ export default {
 </script>
 
 <style scoped>
-.dss-side-panel { position: absolute; top: 80px; right: 20px; bottom: auto; width: 340px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); display: flex; flex-direction: column; z-index: 1000; border: 1px solid #e2e8f0; }
+.dss-side-panel { position: absolute; top: 80px; right: 20px; bottom: auto; width: 340px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); display: flex; flex-direction: column; z-index: 1100; border: 1px solid #e2e8f0; }
 .panel-header { padding: 15px 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; border-radius: 12px 12px 0 0;}
 .panel-title { font-size: 10px; font-weight: 900; color: #64748b; letter-spacing: 1px; margin: 0; }
 .close-btn { background: none; border: none; font-size: 24px; color: #cbd5e1; cursor: pointer; line-height: 1; padding: 0; }
