@@ -3,26 +3,19 @@
     
     <div class="toast-container">
       <transition-group name="toast-anim">
-        <div v-for="toast in toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">
-          {{ toast.message }}
-        </div>
+        <div v-for="toast in toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">{{ toast.message }}</div>
       </transition-group>
     </div>
 
     <header class="dss-header">
-      <div class="brand">
-        <span class="brand-bold">QUIDSI</span>
-        <span class="brand-separator">|</span>
-        <span class="brand-sub">TRENTO DSS</span>
-      </div>
+      <div class="brand"><span class="brand-bold">QUIDSI</span> | TRENTO DSS</div>
 
       <div class="header-search-wrapper">
         <div class="search-input-group">
           <input type="text" v-model="searchQuery" placeholder="🔍 Cerca via o ID..." @input="handleSearch" />
           <ul v-if="searchResults.length" class="search-dropdown">
             <li v-for="res in searchResults" :key="res.id" @click="selectRoad(res.id)">
-              <span class="res-street">{{ res.street }}</span>
-              <span class="res-id">ID: {{ res.id }}</span>
+              {{ res.street }} <small>(ID: {{ res.id }})</small>
             </li>
           </ul>
         </div>
@@ -42,11 +35,7 @@
         @toggle-mode="toggleRoutingMode" @calculate="executeDijkstra" 
       />
 
-      <ActiveClosures 
-        :closedStreets="activeClosures" 
-        @zoom-to="selectRoad" 
-        @reopen="handleQuickReopen" 
-      />
+      <ActiveClosures :closedStreets="activeClosures" @zoom-to="selectRoad" @reopen="handleQuickReopen" />
 
       <MapLegend />
     </main>
@@ -54,12 +43,12 @@
     <Sidebar :isOpen="ui.panelOpen" :selectedEdge="selectedEdge" @close="closeSidebar"
       @simulate-portion="runSimulation('portion')" @simulate-entire="runSimulation('entire')" />
 
-    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario"
-      @save-request="handleSaveScenario" />
+    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario" @save-request="handleSaveScenario" />
   </div>
 </template>
 
 <script>
+import { ApiService } from './services/api';
 import MapGraph from './components/MapGraph.vue';
 import Sidebar from './components/Sidebar.vue';
 import FullscreenMenu from './components/FullscreenMenu.vue';
@@ -79,29 +68,20 @@ export default {
     };
   },
   methods: {
+    // --- UTILS ---
     showToast(message, type = 'info') {
-      const id = Date.now() + Math.random();
+      const id = Date.now();
       this.toasts.push({ id, message, type });
-      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3500);
+      setTimeout(() => this.toasts = this.toasts.filter(t => t.id !== id), 3000);
     },
 
-    /** Mantiene il registro testuale sincronizzato col grafo */
-    refreshClosureList() {
-      const closedIds = this.$refs.mapGraph.getClosedEdgesIds();
-      this.activeClosures = closedIds.map(id => {
-        const road = this.roadList.find(r => String(r.id) === String(id));
-        return { id: id, name: road ? road.street : `Arco ${id}` };
-      });
-    },
-
+    // --- LOGICA DI RICERCA E SYNC ---
     handleSearch() {
       clearTimeout(this.searchTimeout);
-      if (this.searchQuery.length < 2) { this.searchResults = []; return; }
+      if (this.searchQuery.length < 2) return this.searchResults = [];
       this.searchTimeout = setTimeout(() => {
         const q = this.searchQuery.toLowerCase();
-        this.searchResults = this.roadList.filter(r => 
-          String(r.street).toLowerCase().includes(q) || String(r.id).includes(q)
-        ).slice(0, 8);
+        this.searchResults = this.roadList.filter(r => String(r.street).toLowerCase().includes(q) || String(r.id).includes(q)).slice(0, 8);
       }, 200);
     },
 
@@ -110,29 +90,22 @@ export default {
       this.searchQuery = ''; this.searchResults = [];
     },
 
-    handleQuickReopen(id) {
-      this.$refs.mapGraph.updateGroupStyle(id, false);
-      this.refreshClosureList();
-      if (this.hasActiveRoute) this.executeDijkstra();
-      this.showToast('Strada ripristinata', 'success');
+    refreshClosureList() {
+      const ids = this.$refs.mapGraph.getClosedEdgesIds();
+      this.activeClosures = ids.map(id => ({
+        id, name: this.roadList.find(r => String(r.id) === String(id))?.street || `Arco ${id}`
+      }));
     },
 
-    handleGraphLoaded(list) { 
-      this.roadList = list; 
-      this.refreshClosureList(); 
-    },
-
+    // --- INTERAZIONE MAPPA ---
     handleEdgeSelect(edge) {
       if (this.routing.activeMode) {
-        const mode = this.routing.activeMode;
-        if (mode === 'start') this.routing.startPoint = edge;
-        else this.routing.endPoint = edge;
-        this.$refs.mapGraph.setRoutingMarker(edge.uid, mode);
+        this.routing[this.routing.activeMode === 'start' ? 'startPoint' : 'endPoint'] = edge;
+        this.$refs.mapGraph.setRoutingMarker(edge.uid, this.routing.activeMode);
         this.routing.activeMode = null;
         this.$refs.mapGraph.setCursor('grab');
       } else {
-        this.selectedEdge = edge;
-        this.ui.panelOpen = true;
+        this.selectedEdge = edge; this.ui.panelOpen = true;
       }
     },
 
@@ -142,48 +115,66 @@ export default {
         this.ui.panelOpen = false;
         this.$refs.mapGraph.setCursor('crosshair');
         this.showToast('Seleziona un punto sulla mappa', 'warning');
-      } else {
-        this.$refs.mapGraph.setCursor('grab');
-      }
+      } else this.$refs.mapGraph.setCursor('grab');
     },
 
+    // --- CORE ALGORITMO (Liability #3 - Refactored) ---
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
-      this.showToast('Analisi percorsi...', 'info');
-      // Qui va la logica fetch vista prima...
+      this.showToast('Calcolo percorso...', 'info');
+
+      const payload = {
+        start_id: String(this.routing.startPoint.id),
+        end_id: String(this.routing.endPoint.id),
+        closed_edges: this.$refs.mapGraph.getClosedEdgesIds(),
+        weights: JSON.parse(localStorage.getItem('quidsi_algorithm_weights') || '{}')
+      };
+
+      try {
+        const data = await ApiService.calculateRoute(payload);
+        if (data.success && data.path.length) {
+          this.hasActiveRoute = true;
+          this.$refs.mapGraph.drawRoute(data.path);
+          this.showToast('Percorso aggiornato', 'success');
+        } else this.showToast('Nessun percorso disponibile', 'warning');
+      } catch (e) { this.showToast('Errore comunicazione server', 'error'); }
     },
 
-    handleLoadScenario(scenario) {
+    // --- SIMULAZIONE E SCENARI ---
+    runSimulation(mode) {
+      const newState = !this.selectedEdge.isClosed;
+      if (mode === 'portion') this.$refs.mapGraph.updateSingleEdgeStyle(this.selectedEdge.uid, newState);
+      else this.$refs.mapGraph.updateGroupStyle(this.selectedEdge.id, newState);
+      
+      this.selectedEdge.isClosed = newState;
+      this.refreshClosureList();
+      if (this.hasActiveRoute) this.executeDijkstra();
+    },
+
+    handleQuickReopen(id) {
+      this.$refs.mapGraph.updateGroupStyle(id, false);
+      this.refreshClosureList();
+      if (this.hasActiveRoute) this.executeDijkstra();
+    },
+
+    handleLoadScenario(sc) {
       this.softReset();
-      if (scenario.closed_edges) {
-        scenario.closed_edges.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
-        this.refreshClosureList();
-        this.showToast(`Scenario "${scenario.name}" attivo`, 'success');
-      }
+      sc.closed_edges?.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
+      this.refreshClosureList();
+      this.showToast(`Scenario "${sc.name}" caricato`, 'success');
     },
 
-    handleSaveScenario(name) {
-      this.showToast(`Salvataggio "${name}"...`, 'info');
-    },
+    handleSaveScenario(name) { ApiService.saveScenario(name, this.$refs.mapGraph.getClosedEdgesIds()); },
+
+    handleGraphLoaded(list) { this.roadList = list; this.refreshClosureList(); },
 
     closeSidebar() { this.ui.panelOpen = false; },
 
     softReset() {
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
       this.selectedEdge = null; this.ui.panelOpen = false; this.hasActiveRoute = false;
-      this.$refs.mapGraph.setCursor('grab');
-      this.$refs.mapGraph.resetAll();
+      this.$refs.mapGraph.setCursor('grab'); this.$refs.mapGraph.resetAll();
       this.activeClosures = [];
-    },
-
-    runSimulation(mode) {
-      if (!this.selectedEdge) return;
-      const newState = !this.selectedEdge.isClosed;
-      if (mode === 'portion') this.$refs.mapGraph.updateSingleEdgeStyle(this.selectedEdge.uid, newState);
-      else this.$refs.mapGraph.updateGroupStyle(this.selectedEdge.id, newState);
-      this.selectedEdge = { ...this.selectedEdge, isClosed: newState };
-      this.refreshClosureList();
-      if (this.hasActiveRoute) this.executeDijkstra();
     }
   }
 };

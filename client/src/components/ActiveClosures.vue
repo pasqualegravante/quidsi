@@ -43,7 +43,7 @@ export default {
 <style scoped>
 .closures-widget {
   position: absolute;
-  bottom: 80px; 
+  bottom: 20px; 
   left: 15px;
   width: 240px;
   background: rgba(255, 255, 255, 0.9);

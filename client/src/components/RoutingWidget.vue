@@ -65,7 +65,7 @@ export default {
 </script>
 
 <style scoped>
-.routing-widget { position: absolute; top: 80px; left: 20px; width: 320px; background: white; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.2); z-index: 1000; overflow: hidden; border: 1px solid #e2e8f0; }
+.routing-widget { position: absolute; top: 100px; left: 15; width: 320px; background: white; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.2); z-index: 1000; overflow: hidden; border: 1px solid #e2e8f0; }
 .widget-header { background: #0f172a; padding: 12px 20px; color: white; }
 .widget-header h3 { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: 1px; }
 .widget-body { padding: 20px; position: relative; }

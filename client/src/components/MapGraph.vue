@@ -36,14 +36,20 @@ export default {
   },
   mounted() { this.initMap(); this.loadGraph(); },
   methods: {
-    initMap() {
-      this.map = markRaw(L.map(this.$refs.mapContainer, { zoomControl: false, preferCanvas: true }).setView([46.0665, 11.1216], 17)); 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM' }).addTo(this.map);
-      
-      // Definiamo l'ordine dei layer (Z-index visivo)
-      this.statusIconLayer = L.layerGroup().addTo(this.map); // Sopra le strade
-      L.control.zoom({ position: 'bottomleft' }).addTo(this.map);
-    },
+    // Dentro methods -> initMap()
+initMap() {
+  this.map = markRaw(L.map(this.$refs.mapContainer, { 
+    zoomControl: false, 
+    preferCanvas: true 
+  }).setView([46.0665, 11.1216], 17)); 
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
+    attribution: '&copy; OSM' 
+  }).addTo(this.map);
+
+  // SPOSTAMENTO: da bottomleft a topleft
+  L.control.zoom({ position: 'topleft' }).addTo(this.map);
+},
 
     async loadGraph() {
       this.loading = true;
@@ -224,5 +230,11 @@ export default {
 <style scoped>
 .map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; }
 .map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 1000; font-weight: 800; color: #1e293b; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-:deep(.leaflet-control-zoom) { margin-bottom: 30px !important; margin-left: 20px !important; border: none !important; box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; }
+/* In fondo a MapGraph.vue */
+:deep(.leaflet-control-zoom) { 
+  margin-top: 15px !important;  /* Spazio dal bordo superiore */
+  margin-left: 15px !important; /* Allineato ai widget */
+  border: none !important; 
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; 
+}
 </style>
