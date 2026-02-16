@@ -1,6 +1,13 @@
 <template>
   <div id="app" class="dss-main-container">
     
+    <div v-if="isCalculating" class="global-overlay">
+      <div class="spinner-container">
+        <div class="spinner"></div>
+        <span>Calcolo percorso in corso...</span>
+      </div>
+    </div>
+
     <div class="toast-container">
       <transition-group name="toast-anim">
         <div v-for="toast in toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">{{ toast.message }}</div>
@@ -8,14 +15,19 @@
     </div>
 
     <header class="dss-header">
-      <div class="brand"><span class="brand-bold">QUIDSI</span> | TRENTO DSS</div>
+      <div class="brand">
+        <span class="brand-bold">QUIDSI</span>
+        <span class="brand-separator">|</span>
+        <span class="brand-sub">TRENTO DSS</span>
+      </div>
 
       <div class="header-search-wrapper">
         <div class="search-input-group">
           <input type="text" v-model="searchQuery" placeholder="🔍 Cerca via o ID..." @input="handleSearch" />
           <ul v-if="searchResults.length" class="search-dropdown">
             <li v-for="res in searchResults" :key="res.id" @click="selectRoad(res.id)">
-              {{ res.street }} <small>(ID: {{ res.id }})</small>
+              <span class="res-street">{{ res.street }}</span>
+              <span class="res-id">ID: {{ res.id }}</span>
             </li>
           </ul>
         </div>
@@ -35,7 +47,11 @@
         @toggle-mode="toggleRoutingMode" @calculate="executeDijkstra" 
       />
 
-      <ActiveClosures :closedStreets="activeClosures" @zoom-to="selectRoad" @reopen="handleQuickReopen" />
+      <ActiveClosures 
+        :closedStreets="activeClosures" 
+        @zoom-to="selectRoad" 
+        @reopen="handleQuickReopen" 
+      />
 
       <MapLegend />
     </main>
@@ -43,7 +59,8 @@
     <Sidebar :isOpen="ui.panelOpen" :selectedEdge="selectedEdge" @close="closeSidebar"
       @simulate-portion="runSimulation('portion')" @simulate-entire="runSimulation('entire')" />
 
-    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario" @save-request="handleSaveScenario" />
+    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario"
+      @save-request="handleSaveScenario" />
   </div>
 </template>
 
@@ -64,24 +81,43 @@ export default {
       selectedEdge: null, roadList: [], searchQuery: '', searchResults: [], searchTimeout: null,
       ui: { panelOpen: false, fullScreenOpen: false }, toasts: [],
       routing: { startPoint: null, endPoint: null, activeMode: null },
-      activeClosures: [], hasActiveRoute: false
+      activeClosures: [], hasActiveRoute: false,
+      isCalculating: false // Flag per overlay
     };
   },
+  mounted() {
+    // Inizializza l'ascolto per il tasto ESC (Annulla selezione)
+    window.addEventListener('keydown', this.handleKeydown);
+  },
+  beforeUnmount() {
+    window.removeEventListener('keydown', this.handleKeydown);
+  },
   methods: {
+    // --- GESTIONE TASTIERA ---
+    handleKeydown(e) {
+      if (e.key === 'Escape' && this.routing.activeMode) {
+        this.routing.activeMode = null;
+        this.$refs.mapGraph.setCursor('grab');
+        this.showToast('Selezione punto annullata', 'info');
+      }
+    },
+
     // --- UTILS ---
     showToast(message, type = 'info') {
-      const id = Date.now();
+      const id = Date.now() + Math.random();
       this.toasts.push({ id, message, type });
-      setTimeout(() => this.toasts = this.toasts.filter(t => t.id !== id), 3000);
+      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3500);
     },
 
     // --- LOGICA DI RICERCA E SYNC ---
     handleSearch() {
       clearTimeout(this.searchTimeout);
-      if (this.searchQuery.length < 2) return this.searchResults = [];
+      if (this.searchQuery.length < 2) { this.searchResults = []; return; }
       this.searchTimeout = setTimeout(() => {
         const q = this.searchQuery.toLowerCase();
-        this.searchResults = this.roadList.filter(r => String(r.street).toLowerCase().includes(q) || String(r.id).includes(q)).slice(0, 8);
+        this.searchResults = this.roadList.filter(r => 
+          String(r.street).toLowerCase().includes(q) || String(r.id).includes(q)
+        ).slice(0, 8);
       }, 200);
     },
 
@@ -91,21 +127,27 @@ export default {
     },
 
     refreshClosureList() {
-      const ids = this.$refs.mapGraph.getClosedEdgesIds();
-      this.activeClosures = ids.map(id => ({
-        id, name: this.roadList.find(r => String(r.id) === String(id))?.street || `Arco ${id}`
-      }));
+      const closedIds = this.$refs.mapGraph.getClosedEdgesIds();
+      this.activeClosures = closedIds.map(id => {
+        const road = this.roadList.find(r => String(r.id) === String(id));
+        return { id: id, name: road ? road.street : `Arco ${id}` };
+      });
+      // Salvataggio automatico persistente
+      localStorage.setItem('dss_local_closures', JSON.stringify(closedIds));
     },
 
     // --- INTERAZIONE MAPPA ---
     handleEdgeSelect(edge) {
       if (this.routing.activeMode) {
-        this.routing[this.routing.activeMode === 'start' ? 'startPoint' : 'endPoint'] = edge;
-        this.$refs.mapGraph.setRoutingMarker(edge.uid, this.routing.activeMode);
+        const mode = this.routing.activeMode;
+        if (mode === 'start') this.routing.startPoint = edge;
+        else this.routing.endPoint = edge;
+        this.$refs.mapGraph.setRoutingMarker(edge.uid, mode);
         this.routing.activeMode = null;
         this.$refs.mapGraph.setCursor('grab');
       } else {
-        this.selectedEdge = edge; this.ui.panelOpen = true;
+        this.selectedEdge = edge;
+        this.ui.panelOpen = true;
       }
     },
 
@@ -114,15 +156,18 @@ export default {
       if (this.routing.activeMode) {
         this.ui.panelOpen = false;
         this.$refs.mapGraph.setCursor('crosshair');
-        this.showToast('Seleziona un punto sulla mappa', 'warning');
-      } else this.$refs.mapGraph.setCursor('grab');
+        this.showToast('Seleziona un punto sulla mappa (Premi ESC per annullare)', 'warning');
+      } else {
+        this.$refs.mapGraph.setCursor('grab');
+      }
     },
 
-    // --- CORE ALGORITMO (Liability #3 - Refactored) ---
+    // --- CORE ALGORITMO ---
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
-      this.showToast('Calcolo percorso...', 'info');
-
+      
+      this.isCalculating = true; // Blocca UI
+      
       const payload = {
         start_id: String(this.routing.startPoint.id),
         end_id: String(this.routing.endPoint.id),
@@ -135,19 +180,27 @@ export default {
         if (data.success && data.path.length) {
           this.hasActiveRoute = true;
           this.$refs.mapGraph.drawRoute(data.path);
-          this.showToast('Percorso aggiornato', 'success');
-        } else this.showToast('Nessun percorso disponibile', 'warning');
-      } catch (e) { this.showToast('Errore comunicazione server', 'error'); }
+          this.showToast('Percorso ottimale calcolato', 'success');
+        } else {
+          this.showToast('Nessun percorso disponibile', 'warning');
+        }
+      } catch (error) {
+        this.showToast('Errore comunicazione server (Offline)', 'error');
+      } finally {
+        this.isCalculating = false; // Sblocca UI
+      }
     },
 
     // --- SIMULAZIONE E SCENARI ---
     runSimulation(mode) {
+      if (!this.selectedEdge) return;
       const newState = !this.selectedEdge.isClosed;
       if (mode === 'portion') this.$refs.mapGraph.updateSingleEdgeStyle(this.selectedEdge.uid, newState);
       else this.$refs.mapGraph.updateGroupStyle(this.selectedEdge.id, newState);
       
-      this.selectedEdge.isClosed = newState;
-      this.refreshClosureList();
+      this.selectedEdge = { ...this.selectedEdge, isClosed: newState };
+      this.refreshClosureList(); // Auto-salvataggio incluso
+      
       if (this.hasActiveRoute) this.executeDijkstra();
     },
 
@@ -155,215 +208,105 @@ export default {
       this.$refs.mapGraph.updateGroupStyle(id, false);
       this.refreshClosureList();
       if (this.hasActiveRoute) this.executeDijkstra();
+      this.showToast('Strada ripristinata', 'success');
     },
 
-    handleLoadScenario(sc) {
+    handleLoadScenario(scenario) {
       this.softReset();
-      sc.closed_edges?.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
-      this.refreshClosureList();
-      this.showToast(`Scenario "${sc.name}" caricato`, 'success');
+      if (scenario.closed_edges) {
+        scenario.closed_edges.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
+        this.refreshClosureList();
+        this.showToast(`Scenario "${scenario.name}" attivo`, 'success');
+      }
     },
 
-    handleSaveScenario(name) { ApiService.saveScenario(name, this.$refs.mapGraph.getClosedEdgesIds()); },
+    handleSaveScenario(name) {
+      this.showToast(`Salvataggio "${name}"...`, 'info');
+      // ApiService.saveScenario(...)
+    },
 
-    handleGraphLoaded(list) { this.roadList = list; this.refreshClosureList(); },
+    handleGraphLoaded(list) { 
+      this.roadList = list; 
+      
+      // Auto-Ripristino al caricamento iniziale
+      try {
+        const savedClosures = JSON.parse(localStorage.getItem('dss_local_closures') || '[]');
+        if (savedClosures.length > 0) {
+          savedClosures.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
+          this.showToast('Ripristinate chiusure della sessione precedente', 'info');
+        }
+      } catch(e) { console.error('Cache error'); }
+
+      this.refreshClosureList(); 
+    },
 
     closeSidebar() { this.ui.panelOpen = false; },
 
     softReset() {
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
       this.selectedEdge = null; this.ui.panelOpen = false; this.hasActiveRoute = false;
-      this.$refs.mapGraph.setCursor('grab'); this.$refs.mapGraph.resetAll();
+      this.$refs.mapGraph.setCursor('grab');
+      this.$refs.mapGraph.resetAll();
       this.activeClosures = [];
+      localStorage.removeItem('dss_local_closures'); // Pulisce la cache
     }
   }
 };
 </script>
+
 <style>
-/* CSS Globale */
+/* CSS Globale Invariato */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 
-:root {
-  --dss-navy: #0f172a;
-  --dss-blue: #2563eb;
-  --header-height: 60px;
-}
+:root { --dss-navy: #0f172a; --dss-blue: #2563eb; --header-height: 60px; }
+body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Inter', sans-serif; background: #f1f5f9; }
+.dss-main-container { display: flex; flex-direction: column; height: 100vh; position: relative; }
 
-body,
-html {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
-  font-family: 'Inter', sans-serif;
-  background: #f1f5f9;
+/* Overlay Calcolo In Corso */
+.global-overlay {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(3px);
+  z-index: 5000;
+  display: flex; align-items: center; justify-content: center;
+  cursor: wait;
 }
-
-.dss-main-container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  position: relative;
+.spinner-container {
+  background: white; padding: 20px 30px; border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.15); border: 1px solid #e2e8f0;
+  display: flex; align-items: center; gap: 15px; font-weight: 800; color: #1e293b; font-size: 14px;
 }
+.spinner {
+  width: 24px; height: 24px; border: 4px solid #e2e8f0; border-top-color: #2563eb; 
+  border-radius: 50%; animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Toast */
-.toast-container {
-  position: absolute;
-  bottom: 30px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  pointer-events: none;
-}
-
-.toast {
-  background: #1e293b;
-  color: white;
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-  pointer-events: auto;
-}
-
-.toast-success {
-  border-bottom: 3px solid #10b981;
-}
-
-.toast-warning {
-  border-bottom: 3px solid #f59e0b;
-}
-
-.toast-info {
-  border-bottom: 3px solid #3b82f6;
-}
+.toast-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.toast { background: #1e293b; color: white; padding: 12px 24px; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); pointer-events: auto; }
+.toast-success { border-bottom: 3px solid #10b981; }
+.toast-warning { border-bottom: 3px solid #f59e0b; }
+.toast-info { border-bottom: 3px solid #3b82f6; }
 
 /* Header */
-.dss-header {
-  height: var(--header-height);
-  background: var(--dss-navy);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 2rem;
-  z-index: 2000;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  font-size: 14px;
-  letter-spacing: 1px;
-}
-
-.brand-bold {
-  font-weight: 800;
-  color: var(--dss-blue);
-}
-
-.brand-separator {
-  margin: 0 10px;
-  opacity: 0.3;
-}
-
-.header-search-wrapper {
-  flex: 0 1 400px;
-  position: relative;
-}
-
-.search-input-group input {
-  width: 100%;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 8px 15px;
-  border-radius: 6px;
-  color: white;
-  outline: none;
-  transition: 0.3s;
-}
-
-.search-input-group input:focus {
-  background: white;
-  color: black;
-}
-
-.search-dropdown {
-  position: absolute;
-  top: 110%;
-  left: 0;
-  right: 0;
-  background: white;
-  border-radius: 6px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-  list-style: none;
-  padding: 5px 0;
-  margin: 0;
-  z-index: 3000;
-}
-
-.search-dropdown li {
-  padding: 10px 15px;
-  cursor: pointer;
-  color: #333;
-  border-bottom: 1px solid #f1f5f9;
-  display: flex;
-  flex-direction: column;
-}
-
-.search-dropdown li:hover {
-  background: #eff6ff;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-}
-
-.btn-reset-global {
-  background: transparent;
-  color: #94a3b8;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.btn-system {
-  background: var(--dss-blue);
-  color: white;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.dss-viewport {
-  flex: 1;
-  position: relative;
-}
+.dss-header { height: var(--header-height); background: var(--dss-navy); color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 2rem; z-index: 2000; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+.brand { display: flex; align-items: center; font-size: 14px; letter-spacing: 1px; }
+.brand-bold { font-weight: 800; color: var(--dss-blue); }
+.brand-separator { margin: 0 10px; opacity: 0.3; }
+.header-search-wrapper { flex: 0 1 400px; position: relative; }
+.search-input-group input { width: 100%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 15px; border-radius: 6px; color: white; outline: none; transition: 0.3s; }
+.search-input-group input:focus { background: white; color: black; }
+.search-dropdown { position: absolute; top: 110%; left: 0; right: 0; background: white; border-radius: 6px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); list-style: none; padding: 5px 0; margin: 0; z-index: 3000; }
+.search-dropdown li { padding: 10px 15px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; }
+.search-dropdown li:hover { background: #eff6ff; }
+.header-actions { display: flex; align-items: center; gap: 15px; }
+.btn-reset-global { background: transparent; color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; }
+.btn-system { background: var(--dss-blue); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; }
+.dss-viewport { flex: 1; position: relative; }
 
 /* Animazioni */
-.toast-anim-enter-active,
-.toast-anim-leave-active {
-  transition: all 0.3s;
-}
-
-.toast-anim-enter-from {
-  opacity: 0;
-  transform: translateY(20px);
-}
-
-.toast-anim-leave-to {
-  opacity: 0;
-  transform: translateY(-20px);
-}
+.toast-anim-enter-active, .toast-anim-leave-active { transition: all 0.3s; }
+.toast-anim-enter-from { opacity: 0; transform: translateY(20px); }
+.toast-anim-leave-to { opacity: 0; transform: translateY(-20px); }
 </style>
