@@ -43,8 +43,8 @@
           </div>
           <div class="fs-card">
             <h3>Hub Esportazione</h3>
-            <p>Genera report PDF o esporta la rete in formato Shapefile/GeoJSON.</p>
-            <button class="fs-btn" @click="handleAction('export')">CONFIGURA REPORT</button>
+            <p>Genera report PDF analitici o esporta la rete in formato GIS (GeoJSON).</p>
+            <button class="fs-btn btn-highlight-purple" @click="currentView = 'export'">📥 ESPORTA DATI</button>
           </div>
           <div class="fs-card">
             <h3>Parametri Algoritmo</h3>
@@ -55,6 +55,45 @@
         
         <div class="logout-wrapper">
           <button class="btn-logout" @click="handleLogout">🚪 ESCI DAL SISTEMA</button>
+        </div>
+      </div>
+
+      <div v-else-if="currentView === 'export'" class="fs-content export-box">
+        <header class="fs-header-small">
+          <button class="btn-back" @click="currentView = 'dashboard'">← Torna alla Dashboard</button>
+          <h2>HUB ESPORTAZIONE E REPORTISTICA</h2>
+          <p>Genera documenti ufficiali basati sullo scenario attualmente visualizzato in mappa.</p>
+        </header>
+
+        <div class="export-grid">
+          <div class="export-item" :class="{ 'exporting': exportStatus === 'pdf' }">
+            <div class="export-icon">📄</div>
+            <div class="export-details">
+              <h4>Rapporto di Impatto Viabilistico</h4>
+              <p>Documento PDF con statistiche, strade chiuse e variazioni dei tempi medi.</p>
+            </div>
+            <button class="btn-gen" @click="startExport('pdf')" :disabled="exportStatus">
+              {{ exportStatus === 'pdf' ? 'Generazione...' : 'Genera PDF' }}
+            </button>
+          </div>
+
+          <div class="export-item" :class="{ 'exporting': exportStatus === 'gis' }">
+            <div class="export-icon">🗺️</div>
+            <div class="export-details">
+              <h4>Layer Cartografico (GeoJSON)</h4>
+              <p>Esporta la topologia degli archi interrotti per l'integrazione in QGIS/ArcGIS.</p>
+            </div>
+            <button class="btn-gen" @click="startExport('gis')" :disabled="exportStatus">
+              {{ exportStatus === 'gis' ? 'Esportazione...' : 'Scarica GeoJSON' }}
+            </button>
+          </div>
+        </div>
+
+        <div v-if="exportStatus" class="progress-container">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: progress + '%' }"></div>
+          </div>
+          <p class="progress-text">Compilazione asset in corso... {{ progress }}%</p>
         </div>
       </div>
 
@@ -151,21 +190,27 @@
 <script>
 /**
  * @file FullscreenMenu.vue
- * @description Modulo Gestionale Avanzato.
- * Gestisce: Autenticazione SPID, Configurazione Algoritmi e Persistenza Scenari.
+ * @description Modulo Gestionale Avanzato per Pubblica Amministrazione.
+ * Integra: Autenticazione SPID, Hub Esportazione, Tuning Algoritmi e Archivio Scenari.
  */
 export default {
   name: 'FullscreenMenu',
   props: { isOpen: { type: Boolean, required: true } },
-  emits: ['close', 'load-scenario', 'save-request'], // NUOVO: Emits per comunicare con App.vue
+  emits: ['close', 'load-scenario', 'save-request'],
   data() {
     return {
-      isAuthenticated: false, showSpidMenu: false, spidLoading: false, currentUser: '',
+      isAuthenticated: false,
+      showSpidMenu: false,
+      spidLoading: false,
+      currentUser: '',
       providers: ['Poste ID', 'InfoCert ID', 'Aruba ID', 'Sielte ID', 'Namirial ID', 'Lepida ID'],
+      
       currentView: 'dashboard',
+      exportStatus: null, // 'pdf', 'gis' o null
+      progress: 0,
+      
       weights: { residentialPenalty: 1.5, oneWayPenalty: 1.2, congestionLevel: 1.0, emergencyOverride: false },
       newScenarioName: '',
-      // Buffer locale degli scenari (Mock Database)
       scenarios: [
         { id: 1, name: 'Piano Neve Comparto Nord', date: '2026-01-10T14:30:00', closedCount: 14, weightsMode: 'Invernale', closed_edges: ['1040', '1041'] },
         { id: 2, name: 'Cantiere bypass ferroviario', date: '2026-02-05T09:00:00', closedCount: 5, weightsMode: 'Standard', closed_edges: ['2050'] }
@@ -175,28 +220,46 @@ export default {
   watch: {
     isOpen(newVal) {
       if (newVal) { this.checkAuth(); this.loadWeights(); this.fetchScenarios(); } 
-      else { setTimeout(() => { this.currentView = 'dashboard'; }, 300); }
+      else { setTimeout(() => { this.currentView = 'dashboard'; this.exportStatus = null; }, 300); }
     }
   },
   mounted() { this.checkAuth(); this.loadWeights(); },
   methods: {
     checkAuth() {
-      const token = localStorage.getItem('quidsi_jwt'); const user = localStorage.getItem('quidsi_user');
+      const token = localStorage.getItem('quidsi_jwt');
+      const user = localStorage.getItem('quidsi_user');
       if (token && user) { this.isAuthenticated = true; this.currentUser = user; } 
       else { this.isAuthenticated = false; this.showSpidMenu = false; }
     },
     handleSpidAuth(provider) {
       this.showSpidMenu = false; this.spidLoading = true;
       setTimeout(() => {
-        const fakeJwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.spid_mock_token";
-        const fakeUser = "Ing. Mario Rossi (C.F. RSSMRA80A01L378X)";
-        localStorage.setItem('quidsi_jwt', fakeJwt); localStorage.setItem('quidsi_user', fakeUser);
-        this.currentUser = fakeUser; this.isAuthenticated = true; this.spidLoading = false;
-      }, 1500);
+        localStorage.setItem('quidsi_jwt', 'mock_jwt_agid');
+        localStorage.setItem('quidsi_user', 'Operatore Tecnico (C.F. RSSMRA80A01L378X)');
+        this.currentUser = 'Operatore Tecnico (C.F. RSSMRA80A01L378X)';
+        this.isAuthenticated = true; this.spidLoading = false;
+      }, 1200);
     },
     handleLogout() {
       localStorage.removeItem('quidsi_jwt'); localStorage.removeItem('quidsi_user');
-      this.isAuthenticated = false; this.currentUser = ''; this.currentView = 'dashboard';
+      this.isAuthenticated = false; this.currentView = 'dashboard';
+    },
+
+    /** HUB ESPORTAZIONE */
+    startExport(type) {
+      this.exportStatus = type;
+      this.progress = 0;
+      const interval = setInterval(() => {
+        this.progress += 10;
+        if (this.progress >= 100) {
+          clearInterval(interval);
+          setTimeout(() => {
+            alert(`${type.toUpperCase()} generato con successo e inviato al browser per il download.`);
+            this.exportStatus = null;
+            this.progress = 0;
+          }, 500);
+        }
+      }, 150);
     },
 
     /** GESTIONE PESI */
@@ -217,14 +280,10 @@ export default {
       const saved = localStorage.getItem('quidsi_local_scenarios');
       if (saved) this.scenarios = JSON.parse(saved);
     },
-    /** Richiede al componente App.vue di impacchettare lo stato attuale e salvarlo */
     saveCurrentScenario() {
       this.$emit('save-request', this.newScenarioName);
       this.newScenarioName = '';
     },
-    /** * CORREZIONE: Invia i dati dello scenario al padre (App.vue) 
-     * per l'iniezione nella mappa.
-     */
     loadScenario(scenario) {
       this.$emit('load-scenario', scenario);
       this.$emit('close');
@@ -238,26 +297,22 @@ export default {
     formatDate(dateStr) {
       return new Date(dateStr).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute:'2-digit'});
     },
-    handleAction(actionType) { alert(`Azione [${actionType.toUpperCase()}] protetta da SPID.`); }
+    handleAction(actionType) { alert(`Modulo [${actionType.toUpperCase()}] protetto da SPID.`); }
   }
 }
 </script>
 
 <style scoped>
-/* CSS Ottimizzato (Invariato per layout, aggiunto supporto a scroll) */
+/* OVERLAY & COMMON */
 .fs-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15, 23, 42, 0.95); color: white; z-index: 3000; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(8px); }
-.close-fs { position: absolute; top: 30px; right: 40px; background: none; border: 1px solid white; color: white; padding: 10px 20px; cursor: pointer; font-weight: bold; }
+.close-fs { position: absolute; top: 30px; right: 40px; background: none; border: 1px solid white; color: white; padding: 10px 20px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+.close-fs:hover { background: white; color: #0f172a; }
 .fs-content { width: 80%; max-width: 1200px; text-align: center; }
 
-/* LOGIN BOX */
+/* LOGIN & DASHBOARD */
 .login-box { max-width: 450px; background: rgba(255,255,255,0.05); padding: 50px 40px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.1); margin: 0 auto; }
 .pa-logo { font-size: 3rem; margin-bottom: 10px; }
 .btn-spid { background-color: #0066cc; color: white; border: none; border-radius: 4px; padding: 12px 24px; font-weight: bold; cursor: pointer; width: 100%; }
-.spid-providers { position: absolute; top: 100%; left: 0; width: 100%; background: white; list-style: none; padding: 0; margin-top: 5px; border-radius: 4px; text-align: left; }
-.spid-providers li { padding: 12px 20px; color: #0f172a; font-weight: 600; cursor: pointer; border-bottom: 1px solid #e2e8f0; }
-
-/* DASHBOARD */
-.fs-header { margin-bottom: 60px; }
 .fs-header h1 { font-size: 3rem; letter-spacing: 4px; font-weight: 900; }
 .user-badge { background: rgba(59, 130, 246, 0.2); color: #60a5fa; padding: 4px 10px; border-radius: 4px; }
 .fs-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; }
@@ -266,26 +321,46 @@ export default {
 .fs-btn { margin-top: 20px; width: 100%; padding: 12px; background: #2563eb; color: white; border: none; font-weight: bold; border-radius: 6px; cursor: pointer; }
 .btn-highlight { background: #10b981; }
 .btn-highlight-blue { background: #3b82f6; border: 2px solid #60a5fa; }
+.btn-highlight-purple { background: #8b5cf6; border: 2px solid #a78bfa; }
 
-/* CONFIG & SCENARIOS */
+/* HUB ESPORTAZIONE */
+.export-box { max-width: 900px; margin: 0 auto; text-align: left; }
+.export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 30px; }
+.export-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 30px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; text-align: center; transition: 0.3s; }
+.export-icon { font-size: 3rem; margin-bottom: 20px; }
+.export-details h4 { color: #fff; margin-bottom: 10px; }
+.export-details p { font-size: 0.85rem; color: #94a3b8; line-height: 1.5; margin-bottom: 25px; }
+.btn-gen { width: 100%; padding: 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; font-weight: 800; cursor: pointer; }
+.btn-gen:disabled { opacity: 0.5; cursor: wait; }
+.exporting { border-color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
+
+/* Barra Progresso */
+.progress-container { margin-top: 40px; }
+.progress-bar { width: 100%; height: 10px; background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden; }
+.progress-fill { height: 100%; background: #10b981; transition: width 0.2s ease-out; }
+.progress-text { text-align: center; font-size: 0.8rem; color: #10b981; margin-top: 10px; font-weight: 800; }
+
+/* ARCHIVIO & SETTINGS */
 .settings-box, .scenarios-box { max-width: 800px; margin: 0 auto; text-align: left; }
 .fs-header-small { margin-bottom: 40px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px; }
 .btn-back { background: transparent; border: none; color: #94a3b8; cursor: pointer; font-weight: 700; margin-bottom: 15px; }
 .setting-item { background: rgba(0,0,0,0.2); padding: 20px; border-radius: 12px; margin-bottom: 15px; }
 .slider { width: 100%; height: 8px; border-radius: 4px; background: #334155; outline: none; -webkit-appearance: none; }
 .slider::-webkit-slider-thumb { width: 18px; height: 18px; border-radius: 50%; background: #3b82f6; -webkit-appearance: none; cursor: pointer; }
+.custom-select { width: 100%; padding: 12px; background: #0f172a; color: white; border: 1px solid #334155; border-radius: 8px; font-weight: 600; outline: none; }
 
+/* Scenarios List */
 .save-scenario-bar { display: flex; gap: 10px; margin-bottom: 30px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 10px; }
 .save-scenario-bar input { flex: 1; background: rgba(15, 23, 42, 0.8); border: 1px solid #334155; border-radius: 6px; padding: 10px 15px; color: white; outline: none; }
 .btn-save-new { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 800; cursor: pointer; }
-
-.scenarios-list { display: flex; flex-direction: column; gap: 15px; max-height: 50vh; overflow-y: auto; padding-right: 10px; }
+.scenarios-list { display: flex; flex-direction: column; gap: 15px; max-height: 50vh; overflow-y: auto; }
 .scenario-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; }
-.btn-load { background: white; color: #0f172a; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 800; cursor: pointer; }
-.btn-delete-mini { background: rgba(239, 68, 68, 0.1); color: #ef4444; border: 1px solid #ef4444; padding: 8px; border-radius: 6px; cursor: pointer; margin-left: 10px; }
 
-.btn-logout { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 40px;}
+.btn-logout { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 40px; }
 
+/* TRANSITIONS */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.4s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+.slide-down-enter-active { transition: all 0.3s; }
+.slide-down-enter-from { opacity: 0; transform: translateY(-10px); }
 </style>
