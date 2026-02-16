@@ -75,7 +75,7 @@
  * @file App.vue
  * @description Root Component del Decision Support System (DSS).
  * Orchestratore centrale dello stato reattivo: gestisce la comunicazione 
- * bidirezionale tra i layer UI (Sidebar, Widget) e il motore cartografico (MapGraph).
+ * bidirezionale tra i layer UI, il motore cartografico e l'API Node.js.
  */
 import MapGraph from './components/MapGraph.vue';
 import Sidebar from './components/Sidebar.vue';
@@ -87,44 +87,26 @@ export default {
   components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget },
   data() {
     return {
-      /** @type {Object|null} Metadati dell'arco attualmente ispezionato per modifiche viarie */
       selectedEdge: null,
-      /** @type {Array<Object>} Dataset indicizzato degli archi caricati dal GeoJSON (usato per la ricerca in RAM) */
       roadList: [], 
-      /** @type {String} Input testuale del motore di ricerca */
       searchQuery: '', 
-      /** @type {Array<Object>} Buffer dei risultati deduplicati */
       searchResults: [], 
-      /** @type {Number|null} ID del timer per il debounce della ricerca */
       searchTimeout: null,
-      
-      /** @type {Object} Controllori di visibilità dei layout */
       ui: { panelOpen: false, fullScreenOpen: false }, 
-      
-      /** @type {Array<Object>} Coda per le notifiche effimere (Toast) */
       toasts: [],
+      routing: { startPoint: null, endPoint: null, activeMode: null },
       
-      /** @type {Object} Stato isolato per l'algoritmo di Dijkstra (Partenza, Arrivo, Modalità di selezione) */
-      routing: { startPoint: null, endPoint: null, activeMode: null }
+      /** @type {Boolean} Flag di stato: indica se un tragitto Dijkstra è attualmente renderizzato */
+      hasActiveRoute: false 
     };
   },
   methods: {
-    /**
-     * Inserisce un nuovo messaggio nella coda delle notifiche Toast.
-     * @param {String} message - Testo della notifica.
-     * @param {String} [type='info'] - Tipologia visiva ('success', 'warning', 'info').
-     */
     showToast(message, type = 'info') {
       const id = Date.now() + Math.random(); 
       this.toasts.push({ id, message, type });
       setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3500);
     },
 
-    /**
-     * Esegue la ricerca testuale o numerica.
-     * Implementa un debounce di 200ms per evitare lag di UI e una logica
-     * O(n) di deduplicazione per raggruppare visivamente gli ID frammentati.
-     */
     handleSearch() {
       clearTimeout(this.searchTimeout); 
       if (this.searchQuery.length < 2) { this.searchResults = []; return; }
@@ -137,29 +119,22 @@ export default {
           if (streetStr.includes(q) || idStr.includes(q)) { 
             if (!savedIds.includes(idStr)) { savedIds.push(idStr); finalResults.push(road); } 
           } 
-          if (finalResults.length >= 8) break; // Hard limit rendering performance
+          if (finalResults.length >= 8) break; 
         } 
         this.searchResults = finalResults; 
       }, 200);
     },
     
-    /** Triggera la centratura massiva della telecamera su una via ricercata */
     selectRoad(id) { 
       this.$refs.mapGraph.zoomToEdgeGroup(String(id)); 
       this.searchQuery = ''; this.searchResults = []; 
     },
     
-    /** Inizializza l'indice di ricerca quando il componente figlio (MapGraph) ha finito il parsing GIS */
     handleGraphLoaded(list) { this.roadList = list; },
     
-    /**
-     * Centralizza l'handling degli eventi di click provenienti da Leaflet.
-     * Smista l'azione verso il RoutingWidget (se il mirino è attivo) o verso la Sidebar.
-     * @param {Object} edge - Dati topografici dell'arco cliccato.
-     */
     handleEdgeSelect(edge) {
       if (this.routing.activeMode) {
-        // Modalità CATTURA COORDINATE (Routing)
+        // Acquisizione coordinate per il modulo di Routing
         const mode = this.routing.activeMode;
         if (mode === 'start') this.routing.startPoint = edge;
         else this.routing.endPoint = edge;
@@ -167,58 +142,85 @@ export default {
         this.$refs.mapGraph.setRoutingMarker(edge.uid, mode);
         this.showToast(`Punto ${mode === 'start' ? 'Partenza' : 'Arrivo'} impostato`, 'success');
         
-        // Reset del cursore e della modalità
         this.routing.activeMode = null;
         this.$refs.mapGraph.setCursor('grab');
       } else {
-        // Modalità ISPEZIONE standard (Sidebar)
+        // Ispezione standard arco topografico
         this.selectedEdge = edge;
         this.ui.panelOpen = true; 
       }
     },
 
-    /**
-     * Attiva/Disattiva la modalità "Mirino" dal RoutingWidget.
-     * @param {String} mode - 'start' o 'end'.
-     */
     toggleRoutingMode(mode) {
       if (this.routing.activeMode === mode) {
         this.routing.activeMode = null;
         this.$refs.mapGraph.setCursor('grab');
       } else {
         this.routing.activeMode = mode;
-        this.ui.panelOpen = false; // Chiude la sidebar per pulire il focus visivo
+        this.ui.panelOpen = false; 
         this.$refs.mapGraph.setCursor('crosshair'); 
         this.showToast('Clicca sulla mappa per selezionare la strada', 'warning');
       }
     },
 
-    /** Predispone il payload IPC per il backend Python/Node.js */
-    executeDijkstra() {
+    /**
+     * Avvia la risoluzione del percorso minimo (Dijkstra) inoltrando il payload
+     * al microservizio Node.js, includendo le decurtazioni topografiche (cantieri).
+     */
+    async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
-      this.showToast('Calcolo percorso in corso...', 'info');
-      // TODO: Implementare Axios.post verso Node.js
-      console.log("Dijkstra Payload:", { start: this.routing.startPoint.id, end: this.routing.endPoint.id });
+      this.showToast('Calcolo percorso in corso tramite Backend...', 'info');
+      
+      // Estrae dinamicamente le limitazioni dalla mappa
+      const closedEdgesArray = this.$refs.mapGraph.getClosedEdgesIds();
+
+      const payload = { 
+        start_id: String(this.routing.startPoint.id), 
+        end_id: String(this.routing.endPoint.id),
+        closed_edges: closedEdgesArray
+      };
+
+      console.log("[DSS REST] Payload in invio:", payload);
+
+      try {
+        const response = await fetch('http://localhost:3000/api/dijkstra', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await response.json();
+
+        if (data.success && data.path && data.path.length > 0) {
+          this.hasActiveRoute = true;
+          this.$refs.mapGraph.drawRoute(data.path);
+          const dist = data.metrics?.total_distance_meters ? `${data.metrics.total_distance_meters}m` : 'completata';
+          this.showToast(`Percorso ottimale trovato! Distanza: ${dist}`, 'success');
+        } else {
+          this.showToast('Impossibile trovare un percorso! Rete isolata.', 'warning');
+          this.$refs.mapGraph.clearRoute();
+          this.hasActiveRoute = false;
+        }
+      } catch (error) {
+        console.error("[DSS Error] Connessione API fallita:", error);
+        this.showToast('Errore di comunicazione col server (Backend offline?)', 'error');
+      }
     },
 
-    /** Chiude la Sidebar operativa */
     closeSidebar() { this.ui.panelOpen = false; },
     
-    /**
-     * Ripristina istantaneamente l'ambiente di simulazione ai valori predefiniti
-     * svuotando gli stati senza ricorrere a un oneroso window.location.reload().
-     */
     softReset() {
       this.routing.startPoint = null; this.routing.endPoint = null; this.routing.activeMode = null;
       this.selectedEdge = null; this.ui.panelOpen = false;
+      this.hasActiveRoute = false; 
       this.$refs.mapGraph.setCursor('grab');
       this.$refs.mapGraph.resetAll();
       this.showToast('Scenario resettato istantaneamente', 'success');
     },
 
     /**
-     * Altera lo stato logico e visivo del grafo (Simulazione chiusura cantieri).
-     * @param {String} mode - 'portion' (usa UID univoco) o 'entire' (usa ID di sistema).
+     * Applica alterazioni logico-visive al grafo (cantieri/esclusioni).
+     * Innesca un ricalcolo reattivo se incide su un percorso già computato.
      */
     runSimulation(mode) {
       if (!this.selectedEdge) return;
@@ -228,7 +230,13 @@ export default {
       else if (mode === 'entire') this.$refs.mapGraph.updateGroupStyle(this.selectedEdge.id, newState);
       
       this.selectedEdge = { ...this.selectedEdge, isClosed: newState };
-      this.showToast(newState ? 'Strada interrotta' : 'Strada riaperta', newState ? 'warning' : 'success');
+      this.showToast(newState ? 'Strada interrotta al traffico' : 'Strada riaperta', newState ? 'warning' : 'success');
+
+      // Ricalcolo Reattivo (DSS Pattern)
+      if (this.hasActiveRoute) {
+        this.showToast('Ricalcolo automatico della deviazione...', 'info');
+        this.executeDijkstra();
+      }
     }
   }
 };

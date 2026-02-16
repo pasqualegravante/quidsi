@@ -22,7 +22,7 @@
           </div>
           <div class="fs-card">
             <h3>Parametri Algoritmo</h3>
-            <p>Configura i pesi per il calcolo dei cammini minimi tramite Dijkstra.</p>
+            <p>Configura le impedenze per il calcolo dei cammini minimi su Python.</p>
             <button class="fs-btn">IMPOSTA PESI</button>
           </div>
         </div>
@@ -34,16 +34,12 @@
 <script>
 /**
  * @file FullscreenMenu.vue
- * @description Modulo Amministrativo del DSS (Overlay System).
- * In futuro ospiterà i form per la gestione del token JWT, le configurazioni di 
- * sistema (pesi del grafo) e le opzioni di salvataggio/ripristino scenari (LocalStorage/DB).
+ * @description Modulo Overlay Amministrativo.
+ * Predisposto per le iterazioni future del DSS, come JWT e Data Exporting.
  */
 export default {
   name: 'FullscreenMenu',
-  props: { 
-    /** Controlla la visibilità modale (Glassmorphism) */
-    isOpen: { type: Boolean, required: true } 
-  },
+  props: { isOpen: { type: Boolean, required: true } },
   emits: ['close']
 }
 </script>

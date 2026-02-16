@@ -42,9 +42,9 @@
 <script>
 /**
  * @file Sidebar.vue
- * @description Modulo UI di Ispezione Dati e Alterazione Rete.
- * Consente al tecnico di visualizzare l'entità selezionata e forzare la
- * de-indicizzazione temporanea del tratto per i calcoli di prossimità.
+ * @description Modulo UI di Ispezione Topografica.
+ * Gestisce la visualizzazione delle feature map e la simulazione visiva
+ * delle interruzioni viarie (che vengono poi passate come impedenze infinite a Python).
  */
 export default {
   name: 'Sidebar',

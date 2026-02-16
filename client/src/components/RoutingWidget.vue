@@ -38,7 +38,7 @@
         :disabled="!startPoint || !endPoint || activeMode"
         @click="$emit('calculate')"
       >
-        ▶ AVVIA SIMULAZIONE
+        AVVIA SIMULAZIONE
       </button>
     </div>
   </div>
