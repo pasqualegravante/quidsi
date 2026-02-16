@@ -9,8 +9,7 @@
 /**
  * @file MapGraph.vue
  * @description Layer Cartografico e Motore di Rendering GIS.
- * Espone API interne per il recupero delle impedenze spaziali (getClosedEdgesIds)
- * e la proiezione topologica degli algoritmi di ricerca (drawRoute).
+ * Implementa icone di stato per l'accessibilità e visualizzazione dei blocchi.
  */
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -31,7 +30,8 @@ export default {
       loading: false,
       uidIndex: {}, 
       groupIndex: {},
-      routeMarkers: { start: null, end: null }
+      routeMarkers: { start: null, end: null },
+      statusIconLayer: null // <-- NUOVO: Layer per le icone di divieto
     };
   },
   mounted() { this.initMap(); this.loadGraph(); },
@@ -39,29 +39,28 @@ export default {
     initMap() {
       this.map = markRaw(L.map(this.$refs.mapContainer, { zoomControl: false, preferCanvas: true }).setView([46.0665, 11.1216], 17)); 
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM' }).addTo(this.map);
+      
+      // Definiamo l'ordine dei layer (Z-index visivo)
+      this.statusIconLayer = L.layerGroup().addTo(this.map); // Sopra le strade
       L.control.zoom({ position: 'bottomleft' }).addTo(this.map);
     },
 
     async loadGraph() {
       this.loading = true;
       try {
-        const res = await fetch('/grafo_web.geojson'); const data = await res.json();
+        const res = await fetch('/grafo_web.geojson'); 
+        const data = await res.json();
         const geojson = L.geoJSON(data, {
           coordsToLatLng: (coords) => { const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); return [t[1], t[0]]; },
           style: (feature) => {
-            // 1. Priorità massima: Strade Chiuse (Rosso Tratteggiato)
             if (feature.properties.isClosed) return { color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 };
-            
-            // 2. Priorità media: Percorso Calcolato (Verde Smeraldo spesso)
             if (feature.properties.isRoutePath) return { color: '#10b981', weight: 7, opacity: 1 };
-            
-            // 3. Stile standard: Blu o Grigio in base alla viabilità
             return { color: feature.properties.sensouni === 1 ? '#3b82f6' : '#94a3b8', weight: 3, opacity: 0.6 };
           },
           onEachFeature: (feature, layer) => {
-            const uid = String(L.stamp(layer)); feature.properties._uid = uid; 
+            const uid = String(L.stamp(layer)); 
+            feature.properties._uid = uid; 
             const dbId = String(feature.properties.codice);
-            
             this.uidIndex[uid] = layer;
             if (!this.groupIndex[dbId]) this.groupIndex[dbId] = [];
             this.groupIndex[dbId].push(layer);
@@ -69,68 +68,92 @@ export default {
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               this.highlight(layer);
-              
-              // Smart Offset per non oscurare i dati con i widget laterali
               this.map.fitBounds(layer.getBounds(), { paddingBottomRight: [360, 0], maxZoom: 18 });
-              
               this.$emit('select-edge', { uid: uid, id: dbId, street: feature.properties.desvia, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
             });
           }
         });
-        this.graphLayer = markRaw(geojson); this.graphLayer.addTo(this.map);
+
+        this.graphLayer = markRaw(geojson); 
+        this.graphLayer.addTo(this.map);
+        this.updateStatusIcons(); // <-- Caricamento icone iniziale
+        
         this.$emit('graph-loaded', data.features.map(f => ({ id: String(f.properties.codice), street: f.properties.desvia || 'Senza nome' })));
       } catch (e) { console.error(e); } finally { this.loading = false; }
     },
 
-    zoomToEdgeGroup(dbId) {
-      const layers = this.groupIndex[String(dbId)];
-      if (layers && layers.length > 0) {
-        requestAnimationFrame(() => {
-          const group = L.featureGroup(layers);
-          this.map.fitBounds(group.getBounds(), { paddingBottomRight: [360, 0], paddingTopLeft: [20, 20], maxZoom: 18 });
-          this.highlight(layers[0]);
-          this.$emit('select-edge', { uid: layers[0].feature.properties._uid, id: String(layers[0].feature.properties.codice), street: layers[0].feature.properties.desvia, oneWay: layers[0].feature.properties.sensouni, isClosed: !!layers[0].feature.properties.isClosed });
-        });
-      }
+    /**
+     * Calcola il centro di ogni segmento chiuso e piazza l'icona di divieto.
+     */
+    updateStatusIcons() {
+      if (!this.statusIconLayer) return;
+      this.statusIconLayer.clearLayers();
+
+      Object.values(this.uidIndex).forEach(layer => {
+        if (layer.feature.properties.isClosed) {
+          const center = layer.getBounds().getCenter();
+          const closedIcon = L.divIcon({
+            className: 'status-icon-closed',
+            iconSize: [18, 18],
+            iconAnchor: [9, 9]
+          });
+          L.marker(center, { icon: closedIcon, interactive: false }).addTo(this.statusIconLayer);
+        }
+      });
     },
 
-    updateSingleEdgeStyle(uid, isClosed) { const layer = this.uidIndex[uid]; if (layer) { layer.feature.properties.isClosed = isClosed; this.graphLayer.resetStyle(layer); if (this.lastSelected === layer) this.highlight(layer); } },
-    updateGroupStyle(dbId, isClosed) { const layers = this.groupIndex[String(dbId)]; if (layers) { layers.forEach(layer => { layer.feature.properties.isClosed = isClosed; this.graphLayer.resetStyle(layer); if (this.lastSelected === layer) this.highlight(layer); }); } },
-    highlight(layer) { if (this.lastSelected) this.graphLayer.resetStyle(this.lastSelected); layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' }); this.lastSelected = layer; if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront(); },
+    updateSingleEdgeStyle(uid, isClosed) { 
+      const layer = this.uidIndex[uid]; 
+      if (layer) { 
+        layer.feature.properties.isClosed = isClosed; 
+        this.graphLayer.resetStyle(layer); 
+        if (this.lastSelected === layer) this.highlight(layer); 
+        this.updateStatusIcons(); // Aggiorna icone
+      } 
+    },
 
-    /**
-     * Estrae un array deduplicato degli ID associati alle strade chiuse (cantieri).
-     * @returns {Array<String>} Lista di ID da iniettare nel Payload di Dijkstra.
-     */
+    updateGroupStyle(dbId, isClosed) { 
+      const layers = this.groupIndex[String(dbId)]; 
+      if (layers) { 
+        layers.forEach(layer => { 
+          layer.feature.properties.isClosed = isClosed; 
+          this.graphLayer.resetStyle(layer); 
+          if (this.lastSelected === layer) this.highlight(layer); 
+        }); 
+        this.updateStatusIcons(); // Aggiorna icone
+      } 
+    },
+
+    highlight(layer) { 
+      if (this.lastSelected) this.graphLayer.resetStyle(this.lastSelected); 
+      layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' }); 
+      this.lastSelected = layer; 
+      if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront(); 
+    },
+
     getClosedEdgesIds() {
       const closedIds = new Set();
       Object.values(this.uidIndex).forEach(layer => {
-        if (layer.feature.properties.isClosed) {
-          closedIds.add(String(layer.feature.properties.codice));
-        }
+        if (layer.feature.properties.isClosed) closedIds.add(String(layer.feature.properties.codice));
       });
       return Array.from(closedIds);
     },
 
-    /**
-     * Esegue la colorazione dell'algoritmo di routing risolto dal Backend.
-     * @param {Array<String>} pathIds - La sequenza ordinata degli ID della rete.
-     */
     drawRoute(pathIds) {
-      this.clearRoute(); // Flush precedente
+      this.clearRoute();
       pathIds.forEach(id => {
         const layers = this.groupIndex[String(id)];
         if (layers) {
           layers.forEach(layer => {
             layer.feature.properties.isRoutePath = true;
             this.graphLayer.resetStyle(layer);
-            if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront();
+            layer.bringToFront();
           });
         }
       });
+      this.statusIconLayer.bringToFront(); // Mantieni icone sopra il percorso
     },
 
-    /** Disinnesca la visualizzazione del tragitto ottimale in memoria */
     clearRoute() {
       Object.values(this.uidIndex).forEach(layer => {
         if (layer.feature.properties.isRoutePath) {
@@ -145,7 +168,8 @@ export default {
       const center = layer.getBounds().getCenter();
       if (this.routeMarkers[type]) this.map.removeLayer(this.routeMarkers[type]);
       
-      const label = type === 'start' ? 'A' : 'B'; const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
+      const label = type === 'start' ? 'A' : 'B'; 
+      const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
       const customIcon = L.divIcon({ className: 'custom-map-pin', html: `<div class="pin-head ${cssClass}">${label}</div><div class="pin-pulse ${cssClass}"></div>`, iconSize: [30, 42], iconAnchor: [15, 42] });
       
       this.routeMarkers[type] = L.marker(center, { icon: customIcon }).addTo(this.map);
@@ -153,7 +177,6 @@ export default {
 
     setCursor(cursorType) { if (this.$refs.mapContainer) { this.$refs.mapContainer.style.cursor = cursorType; } },
 
-    /** Teardown completo del canvas per il soft reset */
     resetAll() {
       this.clearRoute(); 
       if (this.lastSelected) this.graphLayer.resetStyle(this.lastSelected);
@@ -161,6 +184,7 @@ export default {
       if (this.routeMarkers.start) this.map.removeLayer(this.routeMarkers.start);
       if (this.routeMarkers.end) this.map.removeLayer(this.routeMarkers.end);
       this.routeMarkers = { start: null, end: null };
+      this.statusIconLayer.clearLayers(); // Pulisce icone
       
       Object.values(this.uidIndex).forEach(layer => { layer.feature.properties.isClosed = false; });
       if (this.graphLayer) { this.graphLayer.eachLayer(layer => { this.graphLayer.resetStyle(layer); }); }
@@ -170,10 +194,28 @@ export default {
 </script>
 
 <style>
-/* CSS per Custom Map Pins (Global Leaflet Overrides) */
+/* --- STILI ICONE DI STATO (Globali per Leaflet) --- */
+.status-icon-closed {
+  background: #ef4444;
+  border: 2px solid white;
+  border-radius: 50%;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.status-icon-closed::after {
+  content: '';
+  display: block;
+  width: 60%;
+  height: 2px;
+  background: white;
+  border-radius: 1px;
+}
+
+/* Stili Custom Pins A/B */
 .custom-map-pin { outline: none; }
-.pin-head { width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-family: sans-serif; box-shadow: 0 3px 10px rgba(0,0,0,0.3); position: relative; z-index: 2; }
-.pin-head::after { content: ''; display: block; width: 100%; height: 100%; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; }
+.pin-head { width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; box-shadow: 0 3px 10px rgba(0,0,0,0.3); position: relative; z-index: 2; }
 .marker-start { background: #10b981; } .marker-end { background: #8b5cf6; }
 .pin-pulse { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; background: inherit; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0.6; z-index: 1; animation: pin-pulse-anim 2s infinite; }
 @keyframes pin-pulse-anim { 0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0.8; } 100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; } }
