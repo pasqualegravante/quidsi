@@ -53,6 +53,7 @@
         @select-edge="handleEdgeSelect" 
         @graph-loaded="handleGraphLoaded"
         @focus-consumed="mapFocusId = null"
+        @missed-click="handleMissedClick" 
       />
 
       <RoutingWidget 
@@ -135,6 +136,9 @@ export default {
         }
       }
     },
+    handleMissedClick() {
+      this.uiStore.showToast('Nessuna strada trovata qui. Fai zoom o clicca esattamente su una via.', 'warning');
+    },
 
     handleSearch() {
       clearTimeout(this.searchTimeout);
@@ -182,6 +186,11 @@ export default {
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       
+      // FIX 1: Race Condition. Se l'utente clicca come un forsennato, 
+      // distruggiamo sempre il calcolo precedente PRIMA di istanziare quello nuovo.
+      // Questo previene sovrapposizioni asincrone e memory leak.
+      this.cancelCalculation();
+
       this.uiStore.setCalculating(true); 
       this.currentAbortController = new AbortController();
       const timeoutId = setTimeout(() => this.cancelCalculation('Timeout'), 15000);
@@ -200,10 +209,16 @@ export default {
           this.activeRoutePath = data.path; 
           this.uiStore.showToast('Percorso ottimale ricalcolato', 'success');
         } else {
+          // FIX 2: Ghost Route. Se la destinazione è isolata ma l'API risponde con successo=false,
+          // dobbiamo distruggere il percorso vecchio dalla mappa.
+          this.activeRoutePath = []; 
           this.uiStore.showToast('Nessun percorso disponibile', 'warning');
         }
       } catch (error) {
         if (error.name !== 'AbortError') {
+          // FIX 2: Ghost Route. Anche se il server va in errore (es. nodo non trovato), 
+          // svuotiamo il percorso visivo. Non mentiamo mai all'utente mostrandogli una vecchia strada.
+          this.activeRoutePath = []; 
           const errMap = { 'ABORTED': 'Calcolo interrotto', 'NOT_FOUND': 'Destinazione isolata', 'VALIDATION_ERROR': 'Punti non validi' };
           this.uiStore.showToast(errMap[error.message] || 'Errore server', 'error');
         }
@@ -259,12 +274,27 @@ export default {
 
     handleGraphLoaded(list) { 
       this.roadList = list; 
-      SearchService.buildIndex(list); 
+      SearchService.buildIndex(list); // Costruisce l'indice per la ricerca veloce
       
       const savedClosures = StorageService.getClosures(); 
       if (savedClosures.length > 0) {
-        this.activeClosureIds = [...savedClosures]; 
-        this.uiStore.showToast('Ripristinate chiusure', 'info');
+        // FIX 3: Data Drift e Cache Poisoning
+        // Creiamo un Set con tutti gli ID attualmente validi nel nuovo grafo
+        const validIds = new Set(list.map(r => String(r.id)));
+        
+        // Filtriamo le chiusure salvate nel localStorage: teniamo solo quelle che esistono ancora
+        const validClosures = savedClosures.filter(id => validIds.has(String(id)));
+
+        // Aggiorniamo lo stato di Vue solo con i dati puliti
+        this.activeClosureIds = [...validClosures]; 
+
+        // Se abbiamo scartato qualcosa, avvisiamo l'utente e puliamo subito il localStorage
+        if (validClosures.length < savedClosures.length) {
+          StorageService.saveClosures(this.activeClosureIds);
+          this.uiStore.showToast('Il grafo è stato aggiornato: alcune chiusure obsolete sono state rimosse', 'warning');
+        } else {
+          this.uiStore.showToast('Ripristinate chiusure salvate', 'info');
+        }
       }
     },
 

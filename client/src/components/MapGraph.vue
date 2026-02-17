@@ -25,7 +25,8 @@ export default {
     cursor: { type: String, default: 'grab' },
     focusEdgeId: { type: String, default: null }
   },
-  emits: ['select-edge', 'graph-loaded', 'focus-consumed'],
+  // FIX: Aggiunto 'missed-click' per gestire i click a vuoto
+  emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
   data() {
     return {
       map: null, graphLayer: null, lastSelected: null, loading: false,
@@ -77,6 +78,16 @@ export default {
       
       this.statusIconLayer = markRaw(L.layerGroup()).addTo(this.map); 
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
+
+      // FIX: Gestione "Buco Nero" UX - Intercetta i click che mancano le strade
+      this.map.on('click', () => {
+        if (this.cursor === 'crosshair') {
+          this.$emit('missed-click');
+        } else {
+          // Deseleziona eventuali strade attive (chiude il pannello laterale se si clicca nel vuoto)
+          this.$emit('focus-consumed');
+        }
+      });
     },
 
     async loadGraph() {
@@ -162,15 +173,13 @@ export default {
       if (!layer) return;
       
       // FIX: Gestione di sicurezza per le MultiLineString.
-      // Se Leaflet restituisce un Array di Array di coordinate, estraiamo solo il primo segmento
       let latlngs = layer.getLatLngs();
       if (latlngs.length > 0 && Array.isArray(latlngs[0])) {
         latlngs = latlngs[0]; 
       }
       
-      // Troviamo il vertice in esatta mezzeria
       const middleIndex = Math.floor(latlngs.length / 2);
-      const anchorPoint = latlngs[middleIndex] || layer.getBounds().getCenter(); // Fallback in caso di anomalie
+      const anchorPoint = latlngs[middleIndex] || layer.getBounds().getCenter(); 
 
       const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
       const label = type === 'start' ? 'A' : 'B';
@@ -185,13 +194,12 @@ export default {
           </div>
         `,
         iconSize: [30, 42],
-        iconAnchor: [15, 42] // La precisione dell'ancoraggio alla "punta"
+        iconAnchor: [15, 42] 
       });
       
-      // FIX: Anche il marker DEVE essere markRaw, o distrugge la CPU muovendo la mappa
       this.routeMarkers[type] = markRaw(L.marker(anchorPoint, { 
         icon: customIcon,
-        zIndexOffset: 1000 // Assicura che i pin restino davanti alle linee
+        zIndexOffset: 1000 
       })).addTo(this.map);
     },
 
@@ -202,7 +210,6 @@ export default {
         if (layer.feature.properties.isClosed) {
           const center = layer.getBounds().getCenter();
           const closedIcon = L.divIcon({ className: 'status-icon-closed', iconSize: [18, 18], iconAnchor: [9, 9] });
-          // markRaw anche qui per igiene di memoria
           markRaw(L.marker(center, { icon: closedIcon, interactive: false })).addTo(this.statusIconLayer);
         }
       });
@@ -230,7 +237,7 @@ export default {
 </script>
 
 <style>
-/* Stili Icone Globali Leaflet - Ora gestiscono la rotazione correttamente e l'ancoraggio */
+/* Stili Icone Globali Leaflet */
 .status-icon-closed { background: #ef4444; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; }
 .status-icon-closed::after { content: ''; display: block; width: 60%; height: 2px; background: white; border-radius: 1px; }
 
