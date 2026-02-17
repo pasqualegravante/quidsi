@@ -17,14 +17,13 @@ const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
 
 export default {
   name: 'MapGraph',
-  // LE NUOVE PROPS DICHIRATIVE: La mappa reagisce a queste variabili
   props: {
-    closedEdges: { type: Array, default: () => [] }, // Array di ID chiusi
-    routePath: { type: Array, default: () => [] },   // Array di ID del percorso
+    closedEdges: { type: Array, default: () => [] },
+    routePath: { type: Array, default: () => [] },
     startPoint: { type: Object, default: null },
     endPoint: { type: Object, default: null },
     cursor: { type: String, default: 'grab' },
-    focusEdgeId: { type: String, default: null }     // Trigger per lo zoom
+    focusEdgeId: { type: String, default: null }
   },
   emits: ['select-edge', 'graph-loaded', 'focus-consumed'],
   data() {
@@ -35,8 +34,6 @@ export default {
       statusIconLayer: null
     };
   },
-  // I WATCHERS: Il cuore dell'architettura reattiva.
-  // Quando App.vue cambia i dati, la mappa reagisce istantaneamente.
   watch: {
     closedEdges: {
       handler(newIds) { this.syncClosures(newIds); },
@@ -52,13 +49,24 @@ export default {
     focusEdgeId(newId) { 
       if (newId) { 
         this.zoomToEdgeGroup(newId); 
-        this.$emit('focus-consumed'); // Segnala ad App che l'azione è completata
+        this.$emit('focus-consumed');
       } 
     }
   },
   mounted() { this.initMap(); this.loadGraph(); },
+  
+  // FIX: Previene un massiccio memory leak distruggendo l'istanza di Leaflet
+  beforeUnmount() {
+    if (this.map) {
+      this.map.off();
+      this.map.remove();
+      this.map = null;
+    }
+  },
+
   methods: {
     initMap() {
+      // markRaw previene che Vue infetti l'oggetto map con getter/setter causando lag estremo
       this.map = markRaw(L.map(this.$refs.mapContainer, { 
         zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, maxBoundsViscosity: 1.0, minZoom: 12 
       }).setView([46.0665, 11.1216], 17)); 
@@ -67,7 +75,7 @@ export default {
         attribution: '&copy; OSM', bounds: TRENTO_BOUNDS 
       }).addTo(this.map);
       
-      this.statusIconLayer = L.layerGroup().addTo(this.map); 
+      this.statusIconLayer = markRaw(L.layerGroup()).addTo(this.map); 
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
     },
 
@@ -108,15 +116,12 @@ export default {
         this.graphLayer = markRaw(geojson); 
         this.graphLayer.addTo(this.map);
         
-        // Emette i dati grezzi ad App per costruire il SearchService
         this.$emit('graph-loaded', data.features.map(f => ({ id: String(f.properties.codice), street: f.properties.desvia || 'Senza nome' })));
         
-        // Triggera sincronizzazione iniziale (nel caso di auto-restore da localStorage)
         if (this.closedEdges.length) this.syncClosures(this.closedEdges);
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
 
-    // --- REATTIVITA' ---
     syncClosures(closedIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(closedIds.map(String));
@@ -156,15 +161,40 @@ export default {
       const layer = this.uidIndex[point.uid]; 
       if (!layer) return;
       
-      const center = layer.getBounds().getCenter();
+      // FIX: Gestione di sicurezza per le MultiLineString.
+      // Se Leaflet restituisce un Array di Array di coordinate, estraiamo solo il primo segmento
+      let latlngs = layer.getLatLngs();
+      if (latlngs.length > 0 && Array.isArray(latlngs[0])) {
+        latlngs = latlngs[0]; 
+      }
+      
+      // Troviamo il vertice in esatta mezzeria
+      const middleIndex = Math.floor(latlngs.length / 2);
+      const anchorPoint = latlngs[middleIndex] || layer.getBounds().getCenter(); // Fallback in caso di anomalie
+
       const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
       const label = type === 'start' ? 'A' : 'B';
-      const customIcon = L.divIcon({ className: 'custom-map-pin', html: `<div class="pin-head ${cssClass}">${label}</div><div class="pin-pulse ${cssClass}"></div>`, iconSize: [30, 42], iconAnchor: [15, 42] });
+
+      const customIcon = L.divIcon({
+        className: 'custom-map-pin-container',
+        html: `
+          <div class="pin-wrapper">
+            <div class="pin-head ${cssClass}"><span>${label}</span></div>
+            <div class="pin-pulse ${cssClass}"></div>
+            <div class="pin-leg"></div>
+          </div>
+        `,
+        iconSize: [30, 42],
+        iconAnchor: [15, 42] // La precisione dell'ancoraggio alla "punta"
+      });
       
-      this.routeMarkers[type] = L.marker(center, { icon: customIcon }).addTo(this.map);
+      // FIX: Anche il marker DEVE essere markRaw, o distrugge la CPU muovendo la mappa
+      this.routeMarkers[type] = markRaw(L.marker(anchorPoint, { 
+        icon: customIcon,
+        zIndexOffset: 1000 // Assicura che i pin restino davanti alle linee
+      })).addTo(this.map);
     },
 
-    // --- AZIONI LOCALI ---
     updateStatusIcons() {
       if (!this.statusIconLayer) return;
       this.statusIconLayer.clearLayers();
@@ -172,7 +202,8 @@ export default {
         if (layer.feature.properties.isClosed) {
           const center = layer.getBounds().getCenter();
           const closedIcon = L.divIcon({ className: 'status-icon-closed', iconSize: [18, 18], iconAnchor: [9, 9] });
-          L.marker(center, { icon: closedIcon, interactive: false }).addTo(this.statusIconLayer);
+          // markRaw anche qui per igiene di memoria
+          markRaw(L.marker(center, { icon: closedIcon, interactive: false })).addTo(this.statusIconLayer);
         }
       });
     },
@@ -199,15 +230,43 @@ export default {
 </script>
 
 <style>
-/* Stili Icone Globali Leaflet */
+/* Stili Icone Globali Leaflet - Ora gestiscono la rotazione correttamente e l'ancoraggio */
 .status-icon-closed { background: #ef4444; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; }
 .status-icon-closed::after { content: ''; display: block; width: 60%; height: 2px; background: white; border-radius: 1px; }
 
-.custom-map-pin { outline: none; }
-.pin-head { width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; box-shadow: 0 3px 10px rgba(0,0,0,0.3); position: relative; z-index: 2; }
-.marker-start { background: #10b981; } .marker-end { background: #8b5cf6; }
-.pin-pulse { position: absolute; top: 50%; left: 50%; width: 40px; height: 40px; background: inherit; border-radius: 50%; transform: translate(-50%, -50%); opacity: 0.6; z-index: 1; animation: pin-pulse-anim 2s infinite; }
-@keyframes pin-pulse-anim { 0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0.8; } 100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; } }
+.custom-map-pin-container { background: none !important; border: none !important; }
+.pin-wrapper { position: relative; width: 30px; height: 42px; }
+
+.pin-head {
+  width: 30px; height: 30px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  display: flex; align-items: center; justify-content: center;
+  position: relative; z-index: 5;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+}
+
+.pin-head span { transform: rotate(45deg); color: white; font-weight: 800; font-size: 14px; }
+.marker-start { background: #10b981; border: 2px solid #ffffff; }
+.marker-end { background: #8b5cf6; border: 2px solid #ffffff; }
+
+.pin-leg {
+  width: 2px; height: 4px; background: white;
+  position: absolute; bottom: 0; left: 50%;
+  transform: translateX(-50%); z-index: 4;
+}
+
+.pin-pulse {
+  position: absolute; bottom: -5px; left: 50%;
+  width: 20px; height: 10px; margin-left: -10px;
+  background: rgba(0,0,0,0.2); border-radius: 50%;
+  z-index: 1; animation: pin-shadow-pulse 2s infinite;
+}
+
+@keyframes pin-shadow-pulse {
+  0% { transform: scale(0.5); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
 </style>
 
 <style scoped>

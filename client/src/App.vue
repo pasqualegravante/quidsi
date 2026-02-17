@@ -75,7 +75,7 @@
 <script>
 import { ApiService } from './services/api';
 import { StorageService } from './services/storage';
-import { SearchService } from './services/searchService'; // NUOVO IMPORT
+import { SearchService } from './services/searchService';
 import { uiStore } from './store/uiStore';
 
 import MapGraph from './components/MapGraph.vue';
@@ -91,9 +91,8 @@ export default {
   data() {
     return {
       uiStore, 
-      roadList: [], // Dizionario base
+      roadList: [], 
       
-      // Stati dell'interfaccia (passati come props a MapGraph)
       activeClosureIds: [],
       activeRoutePath: [],
       routing: { startPoint: null, endPoint: null, activeMode: null },
@@ -108,7 +107,6 @@ export default {
     };
   },
   computed: {
-    // Trasforma l'array di ID in array di Oggetti per il Widget Strade Chiuse
     activeClosuresObjects() {
       return this.activeClosureIds.map(id => {
         const road = this.roadList.find(r => String(r.id) === String(id));
@@ -120,7 +118,11 @@ export default {
     window.addEventListener('keydown', this.handleKeydown);
   },
   beforeUnmount() {
+    // FIX: Evita leak di eventi e chiamate asincrone fantasma se l'app viene distrutta
     window.removeEventListener('keydown', this.handleKeydown);
+    if (this.searchTimeout) clearTimeout(this.searchTimeout);
+    if (this.recalcTimeout) clearTimeout(this.recalcTimeout);
+    this.cancelCalculation();
   },
   methods: {
     handleKeydown(e) {
@@ -134,7 +136,6 @@ export default {
       }
     },
 
-    // Ricerca Non-Bloccante tramite Service
     handleSearch() {
       clearTimeout(this.searchTimeout);
       if (this.searchQuery.length < 2) { this.searchResults = []; return; }
@@ -145,7 +146,7 @@ export default {
     },
 
     selectRoad(id) {
-      this.mapFocusId = String(id); // La mappa reagisce a questo cambio
+      this.mapFocusId = String(id);
       this.searchQuery = ''; this.searchResults = [];
     },
 
@@ -195,15 +196,17 @@ export default {
       try {
         const data = await ApiService.calculateRoute(payload, this.currentAbortController.signal);
         
-        if (data.success && data.path.length) {
-          this.activeRoutePath = data.path; // Reattivo! La mappa si aggiorna da sola
+        if (data && data.success && data.path && data.path.length) {
+          this.activeRoutePath = data.path; 
           this.uiStore.showToast('Percorso ottimale ricalcolato', 'success');
         } else {
           this.uiStore.showToast('Nessun percorso disponibile', 'warning');
         }
       } catch (error) {
-        const errMap = { 'ABORTED': 'Calcolo interrotto', 'NOT_FOUND': 'Destinazione isolata', 'VALIDATION_ERROR': 'Punti non validi' };
-        this.uiStore.showToast(errMap[error.message] || 'Errore server', 'error');
+        if (error.name !== 'AbortError') {
+          const errMap = { 'ABORTED': 'Calcolo interrotto', 'NOT_FOUND': 'Destinazione isolata', 'VALIDATION_ERROR': 'Punti non validi' };
+          this.uiStore.showToast(errMap[error.message] || 'Errore server', 'error');
+        }
       } finally {
         clearTimeout(timeoutId);
         this.uiStore.setCalculating(false);
@@ -256,11 +259,11 @@ export default {
 
     handleGraphLoaded(list) { 
       this.roadList = list; 
-      SearchService.buildIndex(list); // Costruisce l'indice per la ricerca veloce
+      SearchService.buildIndex(list); 
       
       const savedClosures = StorageService.getClosures(); 
       if (savedClosures.length > 0) {
-        this.activeClosureIds = [...savedClosures]; // Reattivo! Disegna le X rosse in automatico
+        this.activeClosureIds = [...savedClosures]; 
         this.uiStore.showToast('Ripristinate chiusure', 'info');
       }
     },
@@ -281,7 +284,7 @@ export default {
 </script>
 
 <style>
-/* CSS Globale */
+/* CSS Globale (Rimasto invariato) */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 
 :root {
