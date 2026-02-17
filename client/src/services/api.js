@@ -4,7 +4,8 @@
  * Centralizza le comunicazioni verso il backend Node.js/Python.
  */
 
-const API_BASE_URL = 'http://localhost:3000/api';
+// Usa la variabile d'ambiente se presente, altrimenti fa fallback su localhost
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 export const ApiService = {
   /**
@@ -28,7 +29,7 @@ export const ApiService = {
   },
 
   /**
-   * (Stub per futuro) Salvataggio dello scenario corrente
+   * Salvataggio dello scenario corrente
    */
   async saveScenario(name, closedEdges) {
     console.log(`ApiService: Richiesta salvataggio scenario ${name}`, closedEdges);

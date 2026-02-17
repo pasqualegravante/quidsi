@@ -9,7 +9,6 @@
 /**
  * @file MapGraph.vue
  * @description Layer Cartografico e Motore di Rendering GIS.
- * Implementa icone di stato per l'accessibilità e visualizzazione dei blocchi.
  */
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -31,28 +30,31 @@ export default {
       uidIndex: {}, 
       groupIndex: {},
       routeMarkers: { start: null, end: null },
-      statusIconLayer: null // <-- NUOVO: Layer per le icone di divieto
+      statusIconLayer: null
     };
   },
   mounted() { this.initMap(); this.loadGraph(); },
   methods: {
-    // Dentro methods -> initMap()
-initMap() {
-  this.map = markRaw(L.map(this.$refs.mapContainer, { 
-    zoomControl: false, 
-    preferCanvas: true 
-  }).setView([46.0665, 11.1216], 17)); 
-
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
-    attribution: '&copy; OSM' 
-  }).addTo(this.map);
-
-  // SPOSTAMENTO: da bottomleft a topleft
-  L.control.zoom({ position: 'topleft' }).addTo(this.map);
-},
+    initMap() {
+      this.map = markRaw(L.map(this.$refs.mapContainer, { zoomControl: false, preferCanvas: true }).setView([46.0665, 11.1216], 17)); 
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM' }).addTo(this.map);
+      
+      this.statusIconLayer = L.layerGroup().addTo(this.map); 
+      L.control.zoom({ position: 'topleft' }).addTo(this.map);
+    },
 
     async loadGraph() {
       this.loading = true;
+
+      // FIX MEMORY LEAK: Distrugge i layer vecchi prima di ricaricare
+      if (this.graphLayer) {
+        this.map.removeLayer(this.graphLayer);
+        this.graphLayer = null;
+        this.uidIndex = {};
+        this.groupIndex = {};
+      }
+      if (this.statusIconLayer) this.statusIconLayer.clearLayers();
+
       try {
         const res = await fetch('/grafo_web.geojson'); 
         const data = await res.json();
@@ -82,15 +84,12 @@ initMap() {
 
         this.graphLayer = markRaw(geojson); 
         this.graphLayer.addTo(this.map);
-        this.updateStatusIcons(); // <-- Caricamento icone iniziale
+        this.updateStatusIcons(); 
         
         this.$emit('graph-loaded', data.features.map(f => ({ id: String(f.properties.codice), street: f.properties.desvia || 'Senza nome' })));
-      } catch (e) { console.error(e); } finally { this.loading = false; }
+      } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
 
-    /**
-     * Calcola il centro di ogni segmento chiuso e piazza l'icona di divieto.
-     */
     updateStatusIcons() {
       if (!this.statusIconLayer) return;
       this.statusIconLayer.clearLayers();
@@ -108,13 +107,25 @@ initMap() {
       });
     },
 
+    zoomToEdgeGroup(dbId) {
+      const layers = this.groupIndex[String(dbId)];
+      if (layers && layers.length > 0) {
+        requestAnimationFrame(() => {
+          const group = L.featureGroup(layers);
+          this.map.fitBounds(group.getBounds(), { paddingBottomRight: [360, 0], paddingTopLeft: [20, 20], maxZoom: 18 });
+          this.highlight(layers[0]);
+          this.$emit('select-edge', { uid: layers[0].feature.properties._uid, id: String(layers[0].feature.properties.codice), street: layers[0].feature.properties.desvia, oneWay: layers[0].feature.properties.sensouni, isClosed: !!layers[0].feature.properties.isClosed });
+        });
+      }
+    },
+
     updateSingleEdgeStyle(uid, isClosed) { 
       const layer = this.uidIndex[uid]; 
       if (layer) { 
         layer.feature.properties.isClosed = isClosed; 
         this.graphLayer.resetStyle(layer); 
         if (this.lastSelected === layer) this.highlight(layer); 
-        this.updateStatusIcons(); // Aggiorna icone
+        this.updateStatusIcons(); 
       } 
     },
 
@@ -126,7 +137,7 @@ initMap() {
           this.graphLayer.resetStyle(layer); 
           if (this.lastSelected === layer) this.highlight(layer); 
         }); 
-        this.updateStatusIcons(); // Aggiorna icone
+        this.updateStatusIcons(); 
       } 
     },
 
@@ -157,7 +168,7 @@ initMap() {
           });
         }
       });
-      this.statusIconLayer.bringToFront(); // Mantieni icone sopra il percorso
+      this.statusIconLayer.bringToFront();
     },
 
     clearRoute() {
@@ -190,7 +201,7 @@ initMap() {
       if (this.routeMarkers.start) this.map.removeLayer(this.routeMarkers.start);
       if (this.routeMarkers.end) this.map.removeLayer(this.routeMarkers.end);
       this.routeMarkers = { start: null, end: null };
-      this.statusIconLayer.clearLayers(); // Pulisce icone
+      this.statusIconLayer.clearLayers(); 
       
       Object.values(this.uidIndex).forEach(layer => { layer.feature.properties.isClosed = false; });
       if (this.graphLayer) { this.graphLayer.eachLayer(layer => { this.graphLayer.resetStyle(layer); }); }
@@ -200,26 +211,10 @@ initMap() {
 </script>
 
 <style>
-/* --- STILI ICONE DI STATO (Globali per Leaflet) --- */
-.status-icon-closed {
-  background: #ef4444;
-  border: 2px solid white;
-  border-radius: 50%;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.status-icon-closed::after {
-  content: '';
-  display: block;
-  width: 60%;
-  height: 2px;
-  background: white;
-  border-radius: 1px;
-}
+/* Stili Icone Globali Leaflet */
+.status-icon-closed { background: #ef4444; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 5px rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; }
+.status-icon-closed::after { content: ''; display: block; width: 60%; height: 2px; background: white; border-radius: 1px; }
 
-/* Stili Custom Pins A/B */
 .custom-map-pin { outline: none; }
 .pin-head { width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; box-shadow: 0 3px 10px rgba(0,0,0,0.3); position: relative; z-index: 2; }
 .marker-start { background: #10b981; } .marker-end { background: #8b5cf6; }
@@ -230,11 +225,5 @@ initMap() {
 <style scoped>
 .map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; }
 .map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 1000; font-weight: 800; color: #1e293b; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-/* In fondo a MapGraph.vue */
-:deep(.leaflet-control-zoom) { 
-  margin-top: 15px !important;  /* Spazio dal bordo superiore */
-  margin-left: 15px !important; /* Allineato ai widget */
-  border: none !important; 
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; 
-}
+:deep(.leaflet-control-zoom) { margin-top: 15px !important; margin-left: 15px !important; border: none !important; box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important; }
 </style>

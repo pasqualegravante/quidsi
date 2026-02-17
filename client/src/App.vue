@@ -26,8 +26,7 @@
           <input type="text" v-model="searchQuery" placeholder="🔍 Cerca via o ID..." @input="handleSearch" />
           <ul v-if="searchResults.length" class="search-dropdown">
             <li v-for="res in searchResults" :key="res.id" @click="selectRoad(res.id)">
-              <span class="res-street">{{ res.street }}</span>
-              <span class="res-id">ID: {{ res.id }}</span>
+              {{ res.street }} <small>(ID: {{ res.id }})</small>
             </li>
           </ul>
         </div>
@@ -47,11 +46,7 @@
         @toggle-mode="toggleRoutingMode" @calculate="executeDijkstra" 
       />
 
-      <ActiveClosures 
-        :closedStreets="activeClosures" 
-        @zoom-to="selectRoad" 
-        @reopen="handleQuickReopen" 
-      />
+      <ActiveClosures :closedStreets="activeClosures" @zoom-to="selectRoad" @reopen="handleQuickReopen" />
 
       <MapLegend />
     </main>
@@ -59,8 +54,7 @@
     <Sidebar :isOpen="ui.panelOpen" :selectedEdge="selectedEdge" @close="closeSidebar"
       @simulate-portion="runSimulation('portion')" @simulate-entire="runSimulation('entire')" />
 
-    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario"
-      @save-request="handleSaveScenario" />
+    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario" @save-request="handleSaveScenario" />
   </div>
 </template>
 
@@ -82,11 +76,10 @@ export default {
       ui: { panelOpen: false, fullScreenOpen: false }, toasts: [],
       routing: { startPoint: null, endPoint: null, activeMode: null },
       activeClosures: [], hasActiveRoute: false,
-      isCalculating: false // Flag per overlay
+      isCalculating: false
     };
   },
   mounted() {
-    // Inizializza l'ascolto per il tasto ESC (Annulla selezione)
     window.addEventListener('keydown', this.handleKeydown);
   },
   beforeUnmount() {
@@ -102,22 +95,40 @@ export default {
       }
     },
 
+    // --- SECURE DATA PARSERS (Liabilities Fix) ---
+    getSafeWeights() {
+      try {
+        const data = localStorage.getItem('quidsi_algorithm_weights');
+        return data ? JSON.parse(data) : {};
+      } catch (e) {
+        console.warn("JSON Parse err: fallback a pesi default.");
+        return {};
+      }
+    },
+    getSafeClosures() {
+      try {
+        const data = localStorage.getItem('dss_local_closures');
+        return data ? JSON.parse(data) : [];
+      } catch (e) {
+        console.warn("JSON Parse err: fallback cache chiusure.");
+        return [];
+      }
+    },
+
     // --- UTILS ---
     showToast(message, type = 'info') {
-      const id = Date.now() + Math.random();
+      const id = Date.now();
       this.toasts.push({ id, message, type });
-      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3500);
+      setTimeout(() => this.toasts = this.toasts.filter(t => t.id !== id), 3000);
     },
 
     // --- LOGICA DI RICERCA E SYNC ---
     handleSearch() {
       clearTimeout(this.searchTimeout);
-      if (this.searchQuery.length < 2) { this.searchResults = []; return; }
+      if (this.searchQuery.length < 2) return this.searchResults = [];
       this.searchTimeout = setTimeout(() => {
         const q = this.searchQuery.toLowerCase();
-        this.searchResults = this.roadList.filter(r => 
-          String(r.street).toLowerCase().includes(q) || String(r.id).includes(q)
-        ).slice(0, 8);
+        this.searchResults = this.roadList.filter(r => String(r.street).toLowerCase().includes(q) || String(r.id).includes(q)).slice(0, 8);
       }, 200);
     },
 
@@ -127,27 +138,22 @@ export default {
     },
 
     refreshClosureList() {
-      const closedIds = this.$refs.mapGraph.getClosedEdgesIds();
-      this.activeClosures = closedIds.map(id => {
-        const road = this.roadList.find(r => String(r.id) === String(id));
-        return { id: id, name: road ? road.street : `Arco ${id}` };
-      });
-      // Salvataggio automatico persistente
-      localStorage.setItem('dss_local_closures', JSON.stringify(closedIds));
+      const ids = this.$refs.mapGraph.getClosedEdgesIds();
+      this.activeClosures = ids.map(id => ({
+        id, name: this.roadList.find(r => String(r.id) === String(id))?.street || `Arco ${id}`
+      }));
+      localStorage.setItem('dss_local_closures', JSON.stringify(ids));
     },
 
     // --- INTERAZIONE MAPPA ---
     handleEdgeSelect(edge) {
       if (this.routing.activeMode) {
-        const mode = this.routing.activeMode;
-        if (mode === 'start') this.routing.startPoint = edge;
-        else this.routing.endPoint = edge;
-        this.$refs.mapGraph.setRoutingMarker(edge.uid, mode);
+        this.routing[this.routing.activeMode === 'start' ? 'startPoint' : 'endPoint'] = edge;
+        this.$refs.mapGraph.setRoutingMarker(edge.uid, this.routing.activeMode);
         this.routing.activeMode = null;
         this.$refs.mapGraph.setCursor('grab');
       } else {
-        this.selectedEdge = edge;
-        this.ui.panelOpen = true;
+        this.selectedEdge = edge; this.ui.panelOpen = true;
       }
     },
 
@@ -156,23 +162,21 @@ export default {
       if (this.routing.activeMode) {
         this.ui.panelOpen = false;
         this.$refs.mapGraph.setCursor('crosshair');
-        this.showToast('Seleziona un punto sulla mappa (Premi ESC per annullare)', 'warning');
-      } else {
-        this.$refs.mapGraph.setCursor('grab');
-      }
+        this.showToast('Seleziona un punto (Premi ESC per annullare)', 'warning');
+      } else this.$refs.mapGraph.setCursor('grab');
     },
 
     // --- CORE ALGORITMO ---
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       
-      this.isCalculating = true; // Blocca UI
+      this.isCalculating = true; 
       
       const payload = {
         start_id: String(this.routing.startPoint.id),
         end_id: String(this.routing.endPoint.id),
         closed_edges: this.$refs.mapGraph.getClosedEdgesIds(),
-        weights: JSON.parse(localStorage.getItem('quidsi_algorithm_weights') || '{}')
+        weights: this.getSafeWeights() // Safe JSON call
       };
 
       try {
@@ -180,27 +184,23 @@ export default {
         if (data.success && data.path.length) {
           this.hasActiveRoute = true;
           this.$refs.mapGraph.drawRoute(data.path);
-          this.showToast('Percorso ottimale calcolato', 'success');
-        } else {
-          this.showToast('Nessun percorso disponibile', 'warning');
-        }
-      } catch (error) {
-        this.showToast('Errore comunicazione server (Offline)', 'error');
+          this.showToast('Percorso aggiornato', 'success');
+        } else this.showToast('Nessun percorso disponibile', 'warning');
+      } catch (e) { 
+        this.showToast('Errore comunicazione server', 'error'); 
       } finally {
-        this.isCalculating = false; // Sblocca UI
+        this.isCalculating = false;
       }
     },
 
     // --- SIMULAZIONE E SCENARI ---
     runSimulation(mode) {
-      if (!this.selectedEdge) return;
       const newState = !this.selectedEdge.isClosed;
       if (mode === 'portion') this.$refs.mapGraph.updateSingleEdgeStyle(this.selectedEdge.uid, newState);
       else this.$refs.mapGraph.updateGroupStyle(this.selectedEdge.id, newState);
       
-      this.selectedEdge = { ...this.selectedEdge, isClosed: newState };
-      this.refreshClosureList(); // Auto-salvataggio incluso
-      
+      this.selectedEdge.isClosed = newState;
+      this.refreshClosureList();
       if (this.hasActiveRoute) this.executeDijkstra();
     },
 
@@ -208,34 +208,26 @@ export default {
       this.$refs.mapGraph.updateGroupStyle(id, false);
       this.refreshClosureList();
       if (this.hasActiveRoute) this.executeDijkstra();
-      this.showToast('Strada ripristinata', 'success');
     },
 
-    handleLoadScenario(scenario) {
+    handleLoadScenario(sc) {
       this.softReset();
-      if (scenario.closed_edges) {
-        scenario.closed_edges.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
-        this.refreshClosureList();
-        this.showToast(`Scenario "${scenario.name}" attivo`, 'success');
-      }
+      sc.closed_edges?.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
+      this.refreshClosureList();
+      this.showToast(`Scenario "${sc.name}" caricato`, 'success');
     },
 
-    handleSaveScenario(name) {
-      this.showToast(`Salvataggio "${name}"...`, 'info');
-      // ApiService.saveScenario(...)
-    },
+    handleSaveScenario(name) { ApiService.saveScenario(name, this.$refs.mapGraph.getClosedEdgesIds()); },
 
     handleGraphLoaded(list) { 
       this.roadList = list; 
       
-      // Auto-Ripristino al caricamento iniziale
-      try {
-        const savedClosures = JSON.parse(localStorage.getItem('dss_local_closures') || '[]');
-        if (savedClosures.length > 0) {
-          savedClosures.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
-          this.showToast('Ripristinate chiusure della sessione precedente', 'info');
-        }
-      } catch(e) { console.error('Cache error'); }
+      // Auto-Ripristino F5 Proof (Safe)
+      const savedClosures = this.getSafeClosures();
+      if (savedClosures.length > 0) {
+        savedClosures.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
+        this.showToast('Recuperate interruzioni sessione precedente', 'info');
+      }
 
       this.refreshClosureList(); 
     },
@@ -245,17 +237,16 @@ export default {
     softReset() {
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
       this.selectedEdge = null; this.ui.panelOpen = false; this.hasActiveRoute = false;
-      this.$refs.mapGraph.setCursor('grab');
-      this.$refs.mapGraph.resetAll();
+      this.$refs.mapGraph.setCursor('grab'); this.$refs.mapGraph.resetAll();
       this.activeClosures = [];
-      localStorage.removeItem('dss_local_closures'); // Pulisce la cache
+      localStorage.removeItem('dss_local_closures');
     }
   }
 };
 </script>
 
 <style>
-/* CSS Globale Invariato */
+/* CSS Globale */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 
 :root { --dss-navy: #0f172a; --dss-blue: #2563eb; --header-height: 60px; }
