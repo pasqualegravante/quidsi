@@ -1,7 +1,7 @@
 <template>
   <div id="app" class="dss-main-container">
     
-    <div v-if="isCalculating" class="global-overlay">
+    <div v-if="uiStore.isCalculating" class="global-overlay">
       <div class="spinner-container">
         <div class="spinner"></div>
         <div class="spinner-text">
@@ -13,7 +13,9 @@
 
     <div class="toast-container">
       <transition-group name="toast-anim">
-        <div v-for="toast in toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">{{ toast.message }}</div>
+        <div v-for="toast in uiStore.toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">
+          {{ toast.message }}
+        </div>
       </transition-group>
     </div>
 
@@ -50,11 +52,7 @@
         @toggle-mode="toggleRoutingMode" @calculate="executeDijkstra" 
       />
 
-      <ActiveClosures 
-        :closedStreets="activeClosures" 
-        @zoom-to="selectRoad" 
-        @reopen="handleQuickReopen" 
-      />
+      <ActiveClosures :closedStreets="activeClosures" @zoom-to="selectRoad" @reopen="handleQuickReopen" />
 
       <MapLegend />
     </main>
@@ -68,7 +66,11 @@
 </template>
 
 <script>
+// Importiamo i nostri nuovi Moduli!
 import { ApiService } from './services/api';
+import { StorageService } from './services/storage';
+import { uiStore } from './store/uiStore';
+
 import MapGraph from './components/MapGraph.vue';
 import Sidebar from './components/Sidebar.vue';
 import FullscreenMenu from './components/FullscreenMenu.vue';
@@ -81,12 +83,12 @@ export default {
   components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures },
   data() {
     return {
+      uiStore, // Esponiamo lo store globale al template
       selectedEdge: null, roadList: [], searchQuery: '', searchResults: [], searchTimeout: null,
-      ui: { panelOpen: false, fullScreenOpen: false }, toasts: [],
+      ui: { panelOpen: false, fullScreenOpen: false }, 
       routing: { startPoint: null, endPoint: null, activeMode: null },
       activeClosures: [], hasActiveRoute: false,
-      isCalculating: false,
-      currentAbortController: null // <-- GESTORE DEL TIMEOUT/ABORT
+      currentAbortController: null 
     };
   },
   mounted() {
@@ -96,38 +98,16 @@ export default {
     window.removeEventListener('keydown', this.handleKeydown);
   },
   methods: {
-    // --- GESTIONE TASTIERA ---
     handleKeydown(e) {
       if (e.key === 'Escape') {
-        if (this.isCalculating) {
-          this.cancelCalculation(); // Annulla richiesta di rete
+        if (this.uiStore.isCalculating) {
+          this.cancelCalculation();
         } else if (this.routing.activeMode) {
           this.routing.activeMode = null;
           this.$refs.mapGraph.setCursor('grab');
-          this.showToast('Selezione punto annullata', 'info');
+          this.uiStore.showToast('Selezione punto annullata', 'info');
         }
       }
-    },
-
-    // --- SECURE DATA PARSERS ---
-    getSafeWeights() {
-      try {
-        const data = localStorage.getItem('quidsi_algorithm_weights');
-        return data ? JSON.parse(data) : {};
-      } catch (e) { return {}; }
-    },
-    getSafeClosures() {
-      try {
-        const data = localStorage.getItem('dss_local_closures');
-        return data ? JSON.parse(data) : [];
-      } catch (e) { return []; }
-    },
-
-    // --- UTILS ---
-    showToast(message, type = 'info') {
-      const id = Date.now() + Math.random();
-      this.toasts.push({ id, message, type });
-      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 3500);
     },
 
     handleSearch() {
@@ -152,7 +132,7 @@ export default {
         const road = this.roadList.find(r => String(r.id) === String(id));
         return { id: id, name: road ? road.street : `Arco ${id}` };
       });
-      localStorage.setItem('dss_local_closures', JSON.stringify(closedIds));
+      StorageService.saveClosures(closedIds); // Delegato al Service!
     },
 
     handleEdgeSelect(edge) {
@@ -174,29 +154,25 @@ export default {
       if (this.routing.activeMode) {
         this.ui.panelOpen = false;
         this.$refs.mapGraph.setCursor('crosshair');
-        this.showToast('Seleziona un punto sulla mappa (Premi ESC per annullare)', 'warning');
+        this.uiStore.showToast('Seleziona un punto sulla mappa (ESC per annullare)', 'warning');
       } else {
         this.$refs.mapGraph.setCursor('grab');
       }
     },
 
-    // --- CORE ALGORITMO (Con AbortController) ---
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       
-      this.isCalculating = true;
+      this.uiStore.setCalculating(true); // Delegato allo Store!
       this.currentAbortController = new AbortController();
       
-      // Imposta un Timeout di 15 secondi
-      const timeoutId = setTimeout(() => {
-        this.cancelCalculation('Timeout');
-      }, 15000);
+      const timeoutId = setTimeout(() => this.cancelCalculation('Timeout'), 15000);
 
       const payload = {
         start_id: String(this.routing.startPoint.id),
         end_id: String(this.routing.endPoint.id),
         closed_edges: this.$refs.mapGraph.getClosedEdgesIds(),
-        weights: this.getSafeWeights()
+        weights: StorageService.getWeights() // Delegato al Service!
       };
 
       try {
@@ -205,24 +181,20 @@ export default {
         if (data.success && data.path.length) {
           this.hasActiveRoute = true;
           this.$refs.mapGraph.drawRoute(data.path);
-          this.showToast('Percorso ottimale calcolato', 'success');
+          this.uiStore.showToast('Percorso ottimale calcolato', 'success');
         } else {
-          this.showToast('Nessun percorso disponibile', 'warning');
+          this.uiStore.showToast('Nessun percorso disponibile', 'warning');
         }
       } catch (error) {
-        if (error.name === 'AbortError') {
-          this.showToast('Calcolo interrotto', 'warning');
-        } else {
-          this.showToast('Errore comunicazione server (Offline)', 'error');
-        }
+        if (error.name === 'AbortError') this.uiStore.showToast('Calcolo interrotto', 'warning');
+        else this.uiStore.showToast('Errore di comunicazione server', 'error');
       } finally {
         clearTimeout(timeoutId);
-        this.isCalculating = false;
+        this.uiStore.setCalculating(false);
         this.currentAbortController = null;
       }
     },
 
-    // Terminazione manuale del calcolo
     cancelCalculation(reason = 'Utente') {
       if (this.currentAbortController) {
         console.log(`Interruzione richiesta: ${reason}`);
@@ -246,7 +218,7 @@ export default {
       this.$refs.mapGraph.updateGroupStyle(id, false);
       this.refreshClosureList();
       if (this.hasActiveRoute) this.executeDijkstra();
-      this.showToast('Strada ripristinata', 'success');
+      this.uiStore.showToast('Strada ripristinata', 'success');
     },
 
     handleLoadScenario(scenario) {
@@ -254,18 +226,21 @@ export default {
       if (scenario.closed_edges) {
         scenario.closed_edges.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
         this.refreshClosureList();
-        this.showToast(`Scenario "${scenario.name}" attivo`, 'success');
+        this.uiStore.showToast(`Scenario "${scenario.name}" attivo`, 'success');
       }
     },
 
-    handleSaveScenario(name) { ApiService.saveScenario(name, this.$refs.mapGraph.getClosedEdgesIds()); },
+    handleSaveScenario(name) {
+      this.uiStore.showToast(`Salvataggio "${name}"...`, 'info');
+      ApiService.saveScenario(name, this.$refs.mapGraph.getClosedEdgesIds());
+    },
 
     handleGraphLoaded(list) { 
       this.roadList = list; 
-      const savedClosures = this.getSafeClosures();
+      const savedClosures = StorageService.getClosures(); // Delegato al Service!
       if (savedClosures.length > 0) {
         savedClosures.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
-        this.showToast('Ripristinate chiusure della sessione precedente', 'info');
+        this.uiStore.showToast('Ripristinate chiusure della sessione precedente', 'info');
       }
       this.refreshClosureList(); 
     },
@@ -273,13 +248,13 @@ export default {
     closeSidebar() { this.ui.panelOpen = false; },
 
     softReset() {
-      this.cancelCalculation(); // Stoppa calcoli in corso al reset
+      this.cancelCalculation();
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
       this.selectedEdge = null; this.ui.panelOpen = false; this.hasActiveRoute = false;
       this.$refs.mapGraph.setCursor('grab');
       this.$refs.mapGraph.resetAll();
       this.activeClosures = [];
-      localStorage.removeItem('dss_local_closures');
+      StorageService.clearClosures(); // Delegato al Service!
     }
   }
 };
