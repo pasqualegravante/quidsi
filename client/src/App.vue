@@ -13,9 +13,7 @@
 
     <div class="toast-container">
       <transition-group name="toast-anim">
-        <div v-for="toast in uiStore.toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">
-          {{ toast.message }}
-        </div>
+        <div v-for="toast in uiStore.toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">{{ toast.message }}</div>
       </transition-group>
     </div>
 
@@ -45,29 +43,39 @@
     </header>
 
     <main class="dss-viewport">
-      <MapGraph ref="mapGraph" @select-edge="handleEdgeSelect" @graph-loaded="handleGraphLoaded" />
+      <MapGraph 
+        :closedEdges="activeClosureIds"
+        :routePath="activeRoutePath"
+        :startPoint="routing.startPoint"
+        :endPoint="routing.endPoint"
+        :cursor="mapCursor"
+        :focusEdgeId="mapFocusId"
+        @select-edge="handleEdgeSelect" 
+        @graph-loaded="handleGraphLoaded"
+        @focus-consumed="mapFocusId = null"
+      />
 
       <RoutingWidget 
         :startPoint="routing.startPoint" :endPoint="routing.endPoint" :activeMode="routing.activeMode"
         @toggle-mode="toggleRoutingMode" @calculate="executeDijkstra" 
       />
 
-      <ActiveClosures :closedStreets="activeClosures" @zoom-to="selectRoad" @reopen="handleQuickReopen" />
+      <ActiveClosures :closedStreets="activeClosuresObjects" @zoom-to="selectRoad" @reopen="handleQuickReopen" />
 
       <MapLegend />
     </main>
 
     <Sidebar :isOpen="ui.panelOpen" :selectedEdge="selectedEdge" @close="closeSidebar"
-      @simulate-portion="runSimulation('portion')" @simulate-entire="runSimulation('entire')" />
+      @simulate-portion="runSimulation" @simulate-entire="runSimulation" />
 
-    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario"
-      @save-request="handleSaveScenario" />
+    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario" @save-request="handleSaveScenario" />
   </div>
 </template>
 
 <script>
 import { ApiService } from './services/api';
 import { StorageService } from './services/storage';
+import { SearchService } from './services/searchService'; // NUOVO IMPORT
 import { uiStore } from './store/uiStore';
 
 import MapGraph from './components/MapGraph.vue';
@@ -82,14 +90,31 @@ export default {
   components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures },
   data() {
     return {
-      uiStore, // Esponiamo lo store globale al template
-      selectedEdge: null, roadList: [], searchQuery: '', searchResults: [], searchTimeout: null,
-      ui: { panelOpen: false, fullScreenOpen: false }, 
+      uiStore, 
+      roadList: [], // Dizionario base
+      
+      // Stati dell'interfaccia (passati come props a MapGraph)
+      activeClosureIds: [],
+      activeRoutePath: [],
       routing: { startPoint: null, endPoint: null, activeMode: null },
-      activeClosures: [], hasActiveRoute: false,
+      mapCursor: 'grab',
+      mapFocusId: null,
+
+      selectedEdge: null,
+      searchQuery: '', searchResults: [], searchTimeout: null,
+      ui: { panelOpen: false, fullScreenOpen: false }, 
       currentAbortController: null,
-      recalcTimeout: null // Gestore Anti-Mitraglietta (Debounce)
+      recalcTimeout: null
     };
+  },
+  computed: {
+    // Trasforma l'array di ID in array di Oggetti per il Widget Strade Chiuse
+    activeClosuresObjects() {
+      return this.activeClosureIds.map(id => {
+        const road = this.roadList.find(r => String(r.id) === String(id));
+        return { id, name: road ? road.street : `Arco ${id}` };
+      });
+    }
   },
   mounted() {
     window.addEventListener('keydown', this.handleKeydown);
@@ -100,49 +125,36 @@ export default {
   methods: {
     handleKeydown(e) {
       if (e.key === 'Escape') {
-        if (this.uiStore.isCalculating) {
-          this.cancelCalculation();
-        } else if (this.routing.activeMode) {
+        if (this.uiStore.isCalculating) this.cancelCalculation();
+        else if (this.routing.activeMode) {
           this.routing.activeMode = null;
-          this.$refs.mapGraph.setCursor('grab');
+          this.mapCursor = 'grab';
           this.uiStore.showToast('Selezione punto annullata', 'info');
         }
       }
     },
 
+    // Ricerca Non-Bloccante tramite Service
     handleSearch() {
       clearTimeout(this.searchTimeout);
       if (this.searchQuery.length < 2) { this.searchResults = []; return; }
-      this.searchTimeout = setTimeout(() => {
-        const q = this.searchQuery.toLowerCase();
-        this.searchResults = this.roadList.filter(r => 
-          String(r.street).toLowerCase().includes(q) || String(r.id).includes(q)
-        ).slice(0, 8);
-      }, 200);
+      
+      this.searchTimeout = setTimeout(async () => {
+        this.searchResults = await SearchService.search(this.searchQuery);
+      }, 150);
     },
 
     selectRoad(id) {
-      this.$refs.mapGraph.zoomToEdgeGroup(String(id));
+      this.mapFocusId = String(id); // La mappa reagisce a questo cambio
       this.searchQuery = ''; this.searchResults = [];
-    },
-
-    refreshClosureList() {
-      const closedIds = this.$refs.mapGraph.getClosedEdgesIds();
-      this.activeClosures = closedIds.map(id => {
-        const road = this.roadList.find(r => String(r.id) === String(id));
-        return { id: id, name: road ? road.street : `Arco ${id}` };
-      });
-      StorageService.saveClosures(closedIds);
     },
 
     handleEdgeSelect(edge) {
       if (this.routing.activeMode) {
-        const mode = this.routing.activeMode;
-        if (mode === 'start') this.routing.startPoint = edge;
+        if (this.routing.activeMode === 'start') this.routing.startPoint = edge;
         else this.routing.endPoint = edge;
-        this.$refs.mapGraph.setRoutingMarker(edge.uid, mode);
         this.routing.activeMode = null;
-        this.$refs.mapGraph.setCursor('grab');
+        this.mapCursor = 'grab';
       } else {
         this.selectedEdge = edge;
         this.ui.panelOpen = true;
@@ -153,21 +165,17 @@ export default {
       this.routing.activeMode = this.routing.activeMode === mode ? null : mode;
       if (this.routing.activeMode) {
         this.ui.panelOpen = false;
-        this.$refs.mapGraph.setCursor('crosshair');
-        this.uiStore.showToast('Seleziona un punto sulla mappa (ESC per annullare)', 'warning');
+        this.mapCursor = 'crosshair';
+        this.uiStore.showToast('Seleziona un punto sulla mappa', 'warning');
       } else {
-        this.$refs.mapGraph.setCursor('grab');
+        this.mapCursor = 'grab';
       }
     },
 
-    // DEBOUNCER: Assorbe click multipli e lancia Dijkstra solo dopo che l'operatore si ferma
     triggerAutoRecalc() {
-      if (!this.hasActiveRoute) return;
+      if (this.activeRoutePath.length === 0) return;
       if (this.recalcTimeout) clearTimeout(this.recalcTimeout);
-      
-      this.recalcTimeout = setTimeout(() => {
-        this.executeDijkstra();
-      }, 600);
+      this.recalcTimeout = setTimeout(() => this.executeDijkstra(), 600);
     },
 
     async executeDijkstra() {
@@ -180,7 +188,7 @@ export default {
       const payload = {
         start_id: this.routing.startPoint.id, 
         end_id: this.routing.endPoint.id,
-        closed_edges: this.$refs.mapGraph.getClosedEdgesIds(),
+        closed_edges: this.activeClosureIds,
         weights: StorageService.getWeights() 
       };
 
@@ -188,22 +196,14 @@ export default {
         const data = await ApiService.calculateRoute(payload, this.currentAbortController.signal);
         
         if (data.success && data.path.length) {
-          this.hasActiveRoute = true;
-          this.$refs.mapGraph.drawRoute(data.path);
+          this.activeRoutePath = data.path; // Reattivo! La mappa si aggiorna da sola
           this.uiStore.showToast('Percorso ottimale ricalcolato', 'success');
         } else {
           this.uiStore.showToast('Nessun percorso disponibile', 'warning');
         }
       } catch (error) {
-        // TRADUZIONE ERRORI SPECIFICA
-        const errMap = {
-          'ABORTED': { msg: 'Calcolo interrotto', type: 'warning' },
-          'NOT_FOUND': { msg: 'Destinazione isolata dalle chiusure', type: 'error' },
-          'VALIDATION_ERROR': { msg: 'Punti di partenza/arrivo non validi', type: 'error' },
-          'BAD_REQUEST': { msg: 'Dati mappa non coerenti con il server', type: 'error' }
-        };
-        const mapped = errMap[error.message] || { msg: 'Server offline o errore di sistema', type: 'error' };
-        this.uiStore.showToast(mapped.msg, mapped.type);
+        const errMap = { 'ABORTED': 'Calcolo interrotto', 'NOT_FOUND': 'Destinazione isolata', 'VALIDATION_ERROR': 'Punti non validi' };
+        this.uiStore.showToast(errMap[error.message] || 'Errore server', 'error');
       } finally {
         clearTimeout(timeoutId);
         this.uiStore.setCalculating(false);
@@ -211,30 +211,31 @@ export default {
       }
     },
 
-    cancelCalculation(reason = 'Utente') {
+    cancelCalculation() {
       if (this.currentAbortController) {
-        console.log(`Interruzione richiesta: ${reason}`);
         this.currentAbortController.abort();
         this.currentAbortController = null;
       }
     },
 
-    runSimulation(mode) {
+    runSimulation() {
       if (!this.selectedEdge) return;
-      const newState = !this.selectedEdge.isClosed;
-      if (mode === 'portion') this.$refs.mapGraph.updateSingleEdgeStyle(this.selectedEdge.uid, newState);
-      else this.$refs.mapGraph.updateGroupStyle(this.selectedEdge.id, newState);
+      const idStr = String(this.selectedEdge.id);
       
-      this.selectedEdge = { ...this.selectedEdge, isClosed: newState };
-      this.refreshClosureList();
+      if (this.selectedEdge.isClosed) {
+        this.activeClosureIds = this.activeClosureIds.filter(id => id !== idStr);
+      } else {
+        if (!this.activeClosureIds.includes(idStr)) this.activeClosureIds.push(idStr);
+      }
       
+      this.selectedEdge.isClosed = !this.selectedEdge.isClosed;
+      StorageService.saveClosures(this.activeClosureIds);
       this.triggerAutoRecalc(); 
     },
 
     handleQuickReopen(id) {
-      this.$refs.mapGraph.updateGroupStyle(id, false);
-      this.refreshClosureList();
-      
+      this.activeClosureIds = this.activeClosureIds.filter(c => String(c) !== String(id));
+      StorageService.saveClosures(this.activeClosureIds);
       this.triggerAutoRecalc();
       this.uiStore.showToast('Strada ripristinata', 'success');
     },
@@ -242,25 +243,26 @@ export default {
     handleLoadScenario(scenario) {
       this.softReset();
       if (scenario.closed_edges) {
-        scenario.closed_edges.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
-        this.refreshClosureList();
+        this.activeClosureIds = [...scenario.closed_edges];
+        StorageService.saveClosures(this.activeClosureIds);
         this.uiStore.showToast(`Scenario "${scenario.name}" attivo`, 'success');
       }
     },
 
     handleSaveScenario(name) {
       this.uiStore.showToast(`Salvataggio "${name}"...`, 'info');
-      ApiService.saveScenario(name, this.$refs.mapGraph.getClosedEdgesIds());
+      ApiService.saveScenario(name, this.activeClosureIds);
     },
 
     handleGraphLoaded(list) { 
       this.roadList = list; 
+      SearchService.buildIndex(list); // Costruisce l'indice per la ricerca veloce
+      
       const savedClosures = StorageService.getClosures(); 
       if (savedClosures.length > 0) {
-        savedClosures.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
-        this.uiStore.showToast('Ripristinate chiusure della sessione precedente', 'info');
+        this.activeClosureIds = [...savedClosures]; // Reattivo! Disegna le X rosse in automatico
+        this.uiStore.showToast('Ripristinate chiusure', 'info');
       }
-      this.refreshClosureList(); 
     },
 
     closeSidebar() { this.ui.panelOpen = false; },
@@ -268,10 +270,10 @@ export default {
     softReset() {
       this.cancelCalculation();
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
-      this.selectedEdge = null; this.ui.panelOpen = false; this.hasActiveRoute = false;
-      this.$refs.mapGraph.setCursor('grab');
-      this.$refs.mapGraph.resetAll();
-      this.activeClosures = [];
+      this.selectedEdge = null; this.ui.panelOpen = false;
+      this.activeRoutePath = [];
+      this.activeClosureIds = [];
+      this.mapCursor = 'grab';
       StorageService.clearClosures(); 
     }
   }
