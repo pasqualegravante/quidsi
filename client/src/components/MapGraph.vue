@@ -18,6 +18,13 @@ import { markRaw } from 'vue';
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
 
+// Bounding Box di Trento e dintorni (Sud-Ovest, Nord-Est)
+// Impedisce all'operatore di scorrere la mappa fuori da questa zona
+const TRENTO_BOUNDS = [
+  [45.9500, 11.0000], // SW
+  [46.1500, 11.2500]  // NE
+];
+
 export default {
   name: 'MapGraph',
   emits: ['select-edge', 'graph-loaded'],
@@ -36,8 +43,19 @@ export default {
   mounted() { this.initMap(); this.loadGraph(); },
   methods: {
     initMap() {
-      this.map = markRaw(L.map(this.$refs.mapContainer, { zoomControl: false, preferCanvas: true }).setView([46.0665, 11.1216], 17)); 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OSM' }).addTo(this.map);
+      // Inizializzazione Mappa con vincoli territoriali (Liability #1)
+      this.map = markRaw(L.map(this.$refs.mapContainer, { 
+        zoomControl: false, 
+        preferCanvas: true,
+        maxBounds: TRENTO_BOUNDS, // Evita di uscire dal Trentino
+        maxBoundsViscosity: 1.0,  // Effetto "muro di gomma" rigido ai bordi
+        minZoom: 12               // Impedisce uno zoom-out eccessivo sull'Europa
+      }).setView([46.0665, 11.1216], 17)); 
+
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
+        attribution: '&copy; OSM',
+        bounds: TRENTO_BOUNDS // Ottimizza le tile da scaricare limitandole alla zona utile
+      }).addTo(this.map);
       
       this.statusIconLayer = L.layerGroup().addTo(this.map); 
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
@@ -46,7 +64,7 @@ export default {
     async loadGraph() {
       this.loading = true;
 
-      // FIX MEMORY LEAK: Distrugge i layer vecchi prima di ricaricare
+      // FIX MEMORY LEAK: Distrugge i layer vecchi prima di ricaricare (es. in caso di F5 simulato)
       if (this.graphLayer) {
         this.map.removeLayer(this.graphLayer);
         this.graphLayer = null;
@@ -76,6 +94,7 @@ export default {
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               this.highlight(layer);
+              // MaxZoom impostato a 18 per evitare che zoomi "dentro" le case
               this.map.fitBounds(layer.getBounds(), { paddingBottomRight: [360, 0], maxZoom: 18 });
               this.$emit('select-edge', { uid: uid, id: dbId, street: feature.properties.desvia, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
             });

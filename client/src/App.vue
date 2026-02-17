@@ -66,7 +66,6 @@
 </template>
 
 <script>
-// Importiamo i nostri nuovi Moduli!
 import { ApiService } from './services/api';
 import { StorageService } from './services/storage';
 import { uiStore } from './store/uiStore';
@@ -88,7 +87,8 @@ export default {
       ui: { panelOpen: false, fullScreenOpen: false }, 
       routing: { startPoint: null, endPoint: null, activeMode: null },
       activeClosures: [], hasActiveRoute: false,
-      currentAbortController: null 
+      currentAbortController: null,
+      recalcTimeout: null // Gestore Anti-Mitraglietta (Debounce)
     };
   },
   mounted() {
@@ -132,7 +132,7 @@ export default {
         const road = this.roadList.find(r => String(r.id) === String(id));
         return { id: id, name: road ? road.street : `Arco ${id}` };
       });
-      StorageService.saveClosures(closedIds); // Delegato al Service!
+      StorageService.saveClosures(closedIds);
     },
 
     handleEdgeSelect(edge) {
@@ -160,19 +160,28 @@ export default {
       }
     },
 
+    // DEBOUNCER: Assorbe click multipli e lancia Dijkstra solo dopo che l'operatore si ferma
+    triggerAutoRecalc() {
+      if (!this.hasActiveRoute) return;
+      if (this.recalcTimeout) clearTimeout(this.recalcTimeout);
+      
+      this.recalcTimeout = setTimeout(() => {
+        this.executeDijkstra();
+      }, 600);
+    },
+
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       
-      this.uiStore.setCalculating(true); // Delegato allo Store!
+      this.uiStore.setCalculating(true); 
       this.currentAbortController = new AbortController();
-      
       const timeoutId = setTimeout(() => this.cancelCalculation('Timeout'), 15000);
 
       const payload = {
-        start_id: String(this.routing.startPoint.id),
-        end_id: String(this.routing.endPoint.id),
+        start_id: this.routing.startPoint.id, 
+        end_id: this.routing.endPoint.id,
         closed_edges: this.$refs.mapGraph.getClosedEdgesIds(),
-        weights: StorageService.getWeights() // Delegato al Service!
+        weights: StorageService.getWeights() 
       };
 
       try {
@@ -181,13 +190,20 @@ export default {
         if (data.success && data.path.length) {
           this.hasActiveRoute = true;
           this.$refs.mapGraph.drawRoute(data.path);
-          this.uiStore.showToast('Percorso ottimale calcolato', 'success');
+          this.uiStore.showToast('Percorso ottimale ricalcolato', 'success');
         } else {
           this.uiStore.showToast('Nessun percorso disponibile', 'warning');
         }
       } catch (error) {
-        if (error.name === 'AbortError') this.uiStore.showToast('Calcolo interrotto', 'warning');
-        else this.uiStore.showToast('Errore di comunicazione server', 'error');
+        // TRADUZIONE ERRORI SPECIFICA
+        const errMap = {
+          'ABORTED': { msg: 'Calcolo interrotto', type: 'warning' },
+          'NOT_FOUND': { msg: 'Destinazione isolata dalle chiusure', type: 'error' },
+          'VALIDATION_ERROR': { msg: 'Punti di partenza/arrivo non validi', type: 'error' },
+          'BAD_REQUEST': { msg: 'Dati mappa non coerenti con il server', type: 'error' }
+        };
+        const mapped = errMap[error.message] || { msg: 'Server offline o errore di sistema', type: 'error' };
+        this.uiStore.showToast(mapped.msg, mapped.type);
       } finally {
         clearTimeout(timeoutId);
         this.uiStore.setCalculating(false);
@@ -211,13 +227,15 @@ export default {
       
       this.selectedEdge = { ...this.selectedEdge, isClosed: newState };
       this.refreshClosureList();
-      if (this.hasActiveRoute) this.executeDijkstra();
+      
+      this.triggerAutoRecalc(); 
     },
 
     handleQuickReopen(id) {
       this.$refs.mapGraph.updateGroupStyle(id, false);
       this.refreshClosureList();
-      if (this.hasActiveRoute) this.executeDijkstra();
+      
+      this.triggerAutoRecalc();
       this.uiStore.showToast('Strada ripristinata', 'success');
     },
 
@@ -237,7 +255,7 @@ export default {
 
     handleGraphLoaded(list) { 
       this.roadList = list; 
-      const savedClosures = StorageService.getClosures(); // Delegato al Service!
+      const savedClosures = StorageService.getClosures(); 
       if (savedClosures.length > 0) {
         savedClosures.forEach(id => this.$refs.mapGraph.updateGroupStyle(id, true));
         this.uiStore.showToast('Ripristinate chiusure della sessione precedente', 'info');
@@ -254,21 +272,40 @@ export default {
       this.$refs.mapGraph.setCursor('grab');
       this.$refs.mapGraph.resetAll();
       this.activeClosures = [];
-      StorageService.clearClosures(); // Delegato al Service!
+      StorageService.clearClosures(); 
     }
   }
 };
 </script>
 
 <style>
-/* CSS Globale Invariato */
+/* CSS Globale */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 
-:root { --dss-navy: #0f172a; --dss-blue: #2563eb; --header-height: 60px; }
-body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Inter', sans-serif; background: #f1f5f9; }
-.dss-main-container { display: flex; flex-direction: column; height: 100vh; position: relative; }
+:root {
+  --dss-navy: #0f172a;
+  --dss-blue: #2563eb;
+  --header-height: 60px;
+}
 
-/* Overlay Calcolo In Corso - AGGIORNATO */
+body,
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Inter', sans-serif;
+  background: #f1f5f9;
+}
+
+.dss-main-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: relative;
+}
+
+/* Overlay Calcolo In Corso */
 .global-overlay {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(255, 255, 255, 0.4);
@@ -296,29 +333,157 @@ body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family:
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Toast e Navbar rimangono invariati... */
-.toast-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-.toast { background: #1e293b; color: white; padding: 12px 24px; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); pointer-events: auto; }
+/* Toast */
+.toast-container {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  background: #1e293b;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
+}
+
 .toast-success { border-bottom: 3px solid #10b981; }
 .toast-warning { border-bottom: 3px solid #f59e0b; }
+.toast-error { border-bottom: 3px solid #ef4444; }
 .toast-info { border-bottom: 3px solid #3b82f6; }
 
-.dss-header { height: var(--header-height); background: var(--dss-navy); color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 2rem; z-index: 2000; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
-.brand { display: flex; align-items: center; font-size: 14px; letter-spacing: 1px; }
-.brand-bold { font-weight: 800; color: var(--dss-blue); }
-.brand-separator { margin: 0 10px; opacity: 0.3; }
-.header-search-wrapper { flex: 0 1 400px; position: relative; }
-.search-input-group input { width: 100%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 15px; border-radius: 6px; color: white; outline: none; transition: 0.3s; }
-.search-input-group input:focus { background: white; color: black; }
-.search-dropdown { position: absolute; top: 110%; left: 0; right: 0; background: white; border-radius: 6px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); list-style: none; padding: 5px 0; margin: 0; z-index: 3000; }
-.search-dropdown li { padding: 10px 15px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; }
-.search-dropdown li:hover { background: #eff6ff; }
-.header-actions { display: flex; align-items: center; gap: 15px; }
-.btn-reset-global { background: transparent; color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; }
-.btn-system { background: var(--dss-blue); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; }
-.dss-viewport { flex: 1; position: relative; }
+/* Header */
+.dss-header {
+  height: var(--header-height);
+  background: var(--dss-navy);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  z-index: 2000;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
 
-.toast-anim-enter-active, .toast-anim-leave-active { transition: all 0.3s; }
-.toast-anim-enter-from { opacity: 0; transform: translateY(20px); }
-.toast-anim-leave-to { opacity: 0; transform: translateY(-20px); }
+.brand {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+.brand-bold {
+  font-weight: 800;
+  color: var(--dss-blue);
+}
+
+.brand-separator {
+  margin: 0 10px;
+  opacity: 0.3;
+}
+
+.header-search-wrapper {
+  flex: 0 1 400px;
+  position: relative;
+}
+
+.search-input-group input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 8px 15px;
+  border-radius: 6px;
+  color: white;
+  outline: none;
+  transition: 0.3s;
+}
+
+.search-input-group input:focus {
+  background: white;
+  color: black;
+}
+
+.search-dropdown {
+  position: absolute;
+  top: 110%;
+  left: 0;
+  right: 0;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  list-style: none;
+  padding: 5px 0;
+  margin: 0;
+  z-index: 3000;
+}
+
+.search-dropdown li {
+  padding: 10px 15px;
+  cursor: pointer;
+  color: #333;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-dropdown li:hover {
+  background: #eff6ff;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.btn-reset-global {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-system {
+  background: var(--dss-blue);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dss-viewport {
+  flex: 1;
+  position: relative;
+}
+
+/* Animazioni */
+.toast-anim-enter-active,
+.toast-anim-leave-active {
+  transition: all 0.3s;
+}
+
+.toast-anim-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.toast-anim-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
 </style>
