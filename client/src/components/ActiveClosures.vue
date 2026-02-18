@@ -22,7 +22,7 @@
           </div>
           <div class="actions">
             <button class="btn-zoom" @click="dssStore.setFocusEdge(street.id)" title="Individua">📍</button>
-            <button class="btn-open" @click="dssStore.toggleClosure(street.id)" title="Riapri">🔓</button>
+            <button class="btn-open" @click="dssStore.toggleClosure({ id: street.id, street: street.originalName }, street.isEntireStreet)" title="Riapri">🔓</button>
           </div>
         </li>
       </ul>
@@ -31,11 +31,10 @@
 </template>
 
 <script>
-import { useDssStore } from '../store/dssStore'; // Importa il "cervello"
+import { useDssStore } from '../store/dssStore'; 
 
 export default {
   name: 'ActiveClosures',
-  // In Vue 3, questo è il modo per agganciare lo store
   setup() {
     const dssStore = useDssStore();
     return { dssStore };
@@ -44,7 +43,6 @@ export default {
 </script>
 
 <style scoped>
-/* Lascia esattamente gli stessi stili CSS che avevi prima */
 .closures-widget { position: absolute; bottom: 20px; left: 15px; width: 240px; background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 1000; display: flex; flex-direction: column; max-height: 220px; transition: all 0.3s ease; }
 .is-empty { opacity: 0.85; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
 .widget-header { padding: 8px 12px; background: #0f172a; color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 7px 7px 0 0; }

@@ -10,9 +10,8 @@
 /**
  * @file MapGraph.vue
  * @description Modulo cartografico DSS Trento.
- * Gestisce la segmentazione sintetica (ID_1, ID_2) per raggruppare le vie.
- * Implementa l'highlight multi-segmento per la ricerca e la protezione dello stile
- * giallo durante i ricalcoli reattivi.
+ * Gestisce l'importazione del grafo basata sui nuovi identificatori nativi
+ * (id_arco e codice_via) per garantire allineamento assoluto 1:1 con il backend Python.
  */
 
 import L from 'leaflet';
@@ -39,12 +38,9 @@ export default {
   },
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
 
-  /**
-   * Registri non reattivi per ottimizzare le performance (evita migliaia di Proxy).
-   */
   created() {
     this.uidIndex = {};   // Index: Leaflet UID -> Layer
-    this.groupIndex = {}; // Index: Base ID -> Array di Layer
+    this.groupIndex = {}; // Index: Base ID (codice_via) -> Array di Layer
   },
 
   data() {
@@ -55,7 +51,6 @@ export default {
       routeMarkers: { start: null, end: null },
       statusIconLayer: null,
       mapStateTimeout: null,
-      // Array degli UID dei segmenti attualmente ispezionati (gialli)
       lastSelectedUids: []
     };
   },
@@ -67,10 +62,8 @@ export default {
     endPoint(newVal) { this.syncMarker('end', newVal); },
     cursor(newVal) { if (this.$refs.mapContainer) this.$refs.mapContainer.style.cursor = newVal; },
 
-    // Attiva zoom e highlight totale quando arriva un ID dalla ricerca
     focusEdgeId(newId) { if (newId) { this.zoomToEdgeGroup(newId); this.$emit('focus-consumed'); } },
 
-    // Reset visuale alla chiusura del pannello laterale
     sidebarOpen(newVal) {
       setTimeout(() => { if (this.map) this.map.invalidateSize(); }, 300);
       if (!newVal && this.lastSelectedUids.length > 0) {
@@ -87,9 +80,6 @@ export default {
   },
 
   methods: {
-    /**
-     * Inizializzazione Leaflet con settaggi ottimizzati.
-     */
     initMap() {
       const savedState = StorageService.getMapState();
       const initialCenter = savedState ? [savedState.lat, savedState.lng] : [46.0665, 11.1216];
@@ -111,10 +101,8 @@ export default {
         else this.$emit('focus-consumed');
       });
 
-      // In MapGraph.vue -> initMap
       const saveState = () => {
         if (this.mapStateTimeout) clearTimeout(this.mapStateTimeout);
-        // Aumentato il delay a 2000ms per evitare scritture inutili in localStorage durante lo scroll
         this.mapStateTimeout = setTimeout(() => {
           const center = this.map.getCenter();
           StorageService.saveMapState({
@@ -128,15 +116,11 @@ export default {
       this.map.on('zoomend', saveState);
     },
 
-    /**
-     * Caricamento Grafo e generazione ID sintetici per segmentazione millimetrica.
-     */
     async loadGraph() {
       this.loading = true;
       try {
         const res = await fetch('/grafo_web.geojson');
         const data = await res.json();
-        const codiceCounter = {};
 
         const geojson = L.geoJSON(data, {
           coordsToLatLng: (coords) => {
@@ -149,21 +133,19 @@ export default {
             return { color: feature.properties.sensouni === 1 ? '#3b82f6' : '#94a3b8', weight: 3, opacity: 0.6 };
           },
           onEachFeature: (feature, layer) => {
-            const baseCodice = String(feature.properties.codice);
+            // ---> NUOVA LOGICA: Lettura diretta dei campi nativi <---
+            // Fallback (||) aggiunto per sicurezza qualora il file non sia ancora aggiornato
+            const uniqueId = String(feature.properties.id_arco || feature.properties.codice);
+            const baseCodice = String(feature.properties.codice_via || feature.properties.codice);
 
-            // Incremento contatore per ID sintetico (es. 150_1, 150_2)
-            if (!codiceCounter[baseCodice]) codiceCounter[baseCodice] = 1;
-            else codiceCounter[baseCodice]++;
-
-            const syntheticId = `${baseCodice}_${codiceCounter[baseCodice]}`;
-            feature.properties.uniqueDbId = syntheticId;
+            feature.properties.uniqueDbId = uniqueId;
 
             const uid = String(L.stamp(layer));
             feature.properties._uid = uid;
 
             this.uidIndex[uid] = layer;
 
-            // Raggruppamento per codice base (fondamentale per zoom ricerca)
+            // Raggruppamento visivo e di ricerca tramite codice base (es. "1040")
             if (!this.groupIndex[baseCodice]) this.groupIndex[baseCodice] = [];
             this.groupIndex[baseCodice].push(layer);
 
@@ -182,7 +164,7 @@ export default {
               if (this.cursor !== 'crosshair') this.highlight(layer);
 
               this.$emit('select-edge', {
-                uid: uid, id: syntheticId, street: feature.properties.desvia,
+                uid: uid, id: uniqueId, street: feature.properties.desvia,
                 oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed
               });
             });
@@ -202,9 +184,6 @@ export default {
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
 
-    /**
-     * Sincronizzazione stati di chiusura (Rosso).
-     */
     syncClosures(closedIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(closedIds.map(String));
@@ -220,7 +199,6 @@ export default {
           if (!this.lastSelectedUids.includes(uid)) {
             this.graphLayer.resetStyle(layer);
           } else {
-            // Protezione Giallo: se è ispezionato, sovrascrivi il rosso della chiusura
             layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
           }
         }
@@ -228,9 +206,6 @@ export default {
       this.updateStatusIcons();
     },
 
-    /**
-     * Sincronizzazione percorso ottimale (Verde).
-     */
     syncRoutePath(pathIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(pathIds.map(String));
@@ -247,20 +222,32 @@ export default {
             this.graphLayer.resetStyle(layer);
             if (shouldBeRoute) layer.bringToFront();
           } else {
-            // Protezione Giallo: priorità visiva sul verde del percorso
             layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
           }
         }
       });
     },
 
-    /**
-     * Zoom e Highlight Totale (Multi-segmento) per la ricerca.
-     */
     zoomToEdgeGroup(dbId) {
-      if (!this.graphLayer || !this.groupIndex[String(dbId)]) return;
-      const layers = this.groupIndex[String(dbId)];
-      if (layers && layers.length > 0) {
+      if (!this.graphLayer) return;
+
+      let layers = [];
+      const targetId = String(dbId);
+
+      // CASO 1: È stato cliccato un TRATTO SINGOLO (es. "1040_1" ha l'underscore)
+      if (targetId.includes('_')) {
+        const specificLayer = Object.values(this.uidIndex).find(l => 
+          String(l.feature.properties.uniqueDbId) === targetId
+        );
+        if (specificLayer) layers = [specificLayer];
+      } 
+      // CASO 2: È stata cliccata una VIA INTERA (es. "1040")
+      else if (this.groupIndex[targetId]) {
+        layers = this.groupIndex[targetId];
+      }
+
+      // Esegui lo zoom
+      if (layers.length > 0) {
         requestAnimationFrame(() => {
           const group = L.featureGroup(layers);
           this.map.fitBounds(group.getBounds(), {
@@ -269,7 +256,7 @@ export default {
             maxZoom: 18
           });
 
-          // Evidenzia tutta la via di giallo
+          // Evidenzia di giallo la zona inquadrata
           this.highlight(layers);
 
           const props = layers[0].feature.properties;
@@ -280,18 +267,52 @@ export default {
         });
       }
     },
+    
+    getters: {
+    activeClosuresObjects(state) {
+      const streetGroups = {};
 
-    /**
-     * Gestione Highlight Giallo (singolo o di gruppo).
-     */
+      state.activeClosureIds.forEach(id => {
+        const road = state.roadList.find(r => String(r.id) === String(id));
+        if (road) {
+          const baseId = id.includes('_') ? id.split('_')[0] : id;
+          const streetName = road.street || `Arco ${baseId}`;
+
+          if (!streetGroups[streetName]) {
+            streetGroups[streetName] = {
+              baseId: baseId,
+              streetName: streetName,
+              closedSegments: [],
+              // Calcola quanti segmenti compongono la via intera
+              totalSegments: state.roadList.filter(r => r.street === streetName).length
+            };
+          }
+          streetGroups[streetName].closedSegments.push(id);
+        }
+      });
+
+      const result = [];
+      for (const data of Object.values(streetGroups)) {
+        // SE LA VIA È TUTTA CHIUSA: passa al puntino il codice base (es. "1040")
+        if (data.closedSegments.length === data.totalSegments) {
+          result.push({ id: data.baseId, name: data.streetName });
+        } else {
+          // SE È CHIUSO SOLO UN TRATTO: passa al puntino il codice del singolo arco (es. "1040_1")
+          data.closedSegments.forEach(segId => {
+            result.push({ id: segId, name: `${data.streetName} (Tratto)` });
+          });
+        }
+      }
+      return result;
+    }
+  },
+
     highlight(target) {
       const layers = Array.isArray(target) ? target : [target];
       const newUids = layers.map(l => String(l.feature.properties._uid));
 
-      // Reset della selezione precedente se non inclusa nella nuova
       this.clearHighlight(newUids);
 
-      // Applica stile giallo ai nuovi segmenti
       layers.forEach(layer => {
         layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
         if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront();
@@ -300,10 +321,6 @@ export default {
       this.lastSelectedUids = newUids;
     },
 
-    /**
-     * Rimuove l'evidenziazione gialla.
-     * @param {Array} excludeUids - UID da non resettare (opzionale).
-     */
     clearHighlight(excludeUids = []) {
       const excludeSet = new Set(excludeUids);
       this.lastSelectedUids.forEach(uid => {
@@ -315,14 +332,18 @@ export default {
       if (excludeUids.length === 0) this.lastSelectedUids = [];
     },
 
-    syncMarker(type, point) { /* ... Marker Logic A/B (Invariata) ... */
+    syncMarker(type, point) {
       if (this.routeMarkers[type]) { this.map.removeLayer(this.routeMarkers[type]); this.routeMarkers[type] = null; }
       if (!point) return;
+      
       const layer = this.uidIndex[point.uid] || this.groupIndex[point.id]?.[0];
       if (!layer) return;
-      let latlngs = layer.getLatLngs();
-      if (latlngs.length > 0 && Array.isArray(latlngs[0])) latlngs = latlngs[0];
-      const anchorPoint = latlngs[Math.floor(latlngs.length / 2)] || layer.getBounds().getCenter();
+
+      // ---> LOGICA DI POSIZIONAMENTO PULITA E A PROVA DI CRASH <---
+      // getCenter() estrapola matematicamente il centro esatto calcolando il bounding box,
+      // evitando di dover navigare manualmente negli array di coordinate.
+      const anchorPoint = layer.getBounds().getCenter();
+      
       const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
       const label = type === 'start' ? 'A' : 'B';
       const customIcon = L.divIcon({
@@ -330,10 +351,11 @@ export default {
         html: `<div class="pin-wrapper"><div class="pin-head ${cssClass}"><span>${label}</span></div><div class="pin-pulse ${cssClass}"></div><div class="pin-leg"></div></div>`,
         iconSize: [30, 42], iconAnchor: [15, 42]
       });
+      
       this.routeMarkers[type] = markRaw(L.marker(anchorPoint, { icon: customIcon, zIndexOffset: 1000 })).addTo(this.map);
     },
 
-    updateStatusIcons() { /* ... Icone Chiusura (Invariate) ... */
+    updateStatusIcons() {
       if (!this.statusIconLayer) return;
       this.statusIconLayer.clearLayers();
       Object.values(this.uidIndex).forEach(layer => {
@@ -349,7 +371,7 @@ export default {
 </script>
 
 <style>
-/* Leaflet Global Icons */
+/* Leaflet Global Icons (Invariati) */
 .status-icon-closed {
   background: #ef4444;
   border: 2px solid white;
@@ -435,15 +457,8 @@ export default {
 }
 
 @keyframes pin-shadow-pulse {
-  0% {
-    transform: scale(0.5);
-    opacity: 0.5;
-  }
-
-  100% {
-    transform: scale(1.5);
-    opacity: 0;
-  }
+  0% { transform: scale(0.5); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
 }
 </style>
 
