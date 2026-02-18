@@ -12,15 +12,18 @@
 
     <div class="toast-container">
       <transition-group name="toast-anim">
-        <div v-for="toast in uiStore.toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">{{ toast.message
-          }}</div>
+        <div v-for="toast in uiStore.toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">
+          <span class="toast-icon">
+            {{ toast.type === 'success' ? '✅' : toast.type === 'error' ? '⚠️' : 'ℹ️' }}
+          </span>
+          {{ toast.message }}
+        </div>
       </transition-group>
     </div>
 
     <header class="dss-header">
       <div class="brand">
-        <span class="brand-bold">QUIDSI</span><span class="brand-separator">|</span><span class="brand-sub">TRENTO
-          DSS</span>
+        <span class="brand-bold">QUIDSI</span><span class="brand-separator">|</span><span class="brand-sub">TRENTO DSS</span>
       </div>
 
       <div class="header-search-wrapper">
@@ -42,26 +45,35 @@
     </header>
 
     <main class="dss-viewport">
-      <MapGraph :closedEdges="dssStore.activeClosureIds" :routePath="dssStore.activeRoutePath"
-        :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint" :cursor="dssStore.mapCursor"
-        :focusEdgeId="dssStore.mapFocusId" :sidebarOpen="dssStore.isSidebarOpen" @select-edge="handleEdgeSelect"
+      <MapGraph 
+        :closedEdges="dssStore.activeClosureIds" :routePath="dssStore.activeRoutePath"
+        :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint" 
+        :cursor="dssStore.mapCursor" :focusEdgeId="dssStore.mapFocusId" 
+        :sidebarOpen="dssStore.isSidebarOpen" @select-edge="handleEdgeSelect"
         @graph-loaded="handleGraphLoaded" @focus-consumed="dssStore.mapFocusId = null"
-        @missed-click="handleMissedClick" />
+        @missed-click="handleMissedClick" 
+      />
 
-      <Sidebar :isOpen="dssStore.isSidebarOpen" :selectedEdge="dssStore.selectedEdge" @close="dssStore.closeSidebar()"
+      <Sidebar 
+        :isOpen="dssStore.isSidebarOpen" :selectedEdge="dssStore.selectedEdge" @close="dssStore.closeSidebar()"
         @simulate-portion="dssStore.toggleClosure(dssStore.selectedEdge, false)"
-        @simulate-entire="dssStore.toggleClosure(dssStore.selectedEdge, true)" />
+        @simulate-entire="dssStore.toggleClosure(dssStore.selectedEdge, true)" 
+      />
 
-      <RoutingWidget :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint"
+      <RoutingWidget 
+        :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint"
         :activeMode="dssStore.routing.activeMode" @toggle-mode="dssStore.toggleRoutingMode"
-        @calculate="dssStore.executeDijkstra" />
+        @calculate="dssStore.executeDijkstra" 
+      />
 
       <ActiveClosures />
       <MapLegend />
     </main>
 
-    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario"
-      @save-request="handleSaveScenario" />
+    <FullscreenMenu 
+      :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" 
+      @load-scenario="handleLoadScenario" @save-request="handleSaveScenario" 
+    />
   </div>
 </template>
 
@@ -137,28 +149,20 @@ export default {
       }, 150);
     },
 
-    /**
-     * Gestisce la selezione di una via dai risultati di ricerca.
-     * @param {string} baseId - Il codice base della via (es. 1040).
-     */
-    // In App.vue -> methods
-
     selectRoad(baseId) {
-      // 1. Attiva il focus (zoom mappa)
+      // 1. Zoom mappa
       this.dssStore.setFocusEdge(baseId);
 
-      // 2. FIX: Tenta di aprire la sidebar immediatamente se abbiamo i dati minimi nello store
+      // 2. Apertura Sidebar immediata (fix reattività)
       const roadData = this.dssStore.roadList.find(r => r.id.startsWith(baseId));
       if (roadData) {
         this.dssStore.openSidebar({
           id: roadData.id,
           street: roadData.street,
           uid: roadData.uid
-          // Gli altri dettagli (oneWay, isClosed) verranno aggiornati dallo store
         });
       }
 
-      // 3. Pulisce l'interfaccia
       this.searchQuery = '';
       this.searchResults = [];
     },
@@ -173,18 +177,11 @@ export default {
       }
     },
 
-    /**
-     * Carica uno scenario dal sistema.
-     * Effettua l'espansione degli ID base del DB nei frammenti reali del grafo.
-     */
     handleLoadScenario(scenario) {
       this.dssStore.closeSidebar();
-
       if (scenario.closed_edges) {
         const allRoads = this.dssStore.roadList;
         const expandedIds = [];
-
-        // Logic: Espansione ID (es. "1040" diventa ["1040_1", "1040_2", ...])
         scenario.closed_edges.forEach(baseId => {
           const stringId = String(baseId);
           const matches = allRoads
@@ -192,7 +189,6 @@ export default {
             .map(r => r.id);
           expandedIds.push(...matches);
         });
-
         this.dssStore.activeClosureIds = [...new Set(expandedIds)];
         StorageService.saveClosures(this.dssStore.activeClosureIds);
         this.uiStore.showToast(`Scenario "${scenario.name}" attivo`, 'success');
@@ -208,14 +204,12 @@ export default {
     handleGraphLoaded(list) {
       this.dssStore.setRoadList(list);
       SearchService.buildIndex(list);
-
       const savedClosures = StorageService.getClosures();
       if (savedClosures && savedClosures.length > 0) {
         const validIds = new Set(list.map(r => String(r.id)));
         const validClosures = savedClosures.filter(id =>
           id !== 'undefined' && id !== 'null' && validIds.has(String(id))
         );
-
         this.dssStore.activeClosureIds = [...validClosures];
         if (validClosures.length !== savedClosures.length) {
           StorageService.saveClosures(this.dssStore.activeClosureIds);
@@ -228,23 +222,24 @@ export default {
   }
 };
 </script>
-/**
-* Gestisce la selezione di una via dai risultati di ricerca.
-* @param {string} baseId - Il codice base della via (es. 1040).
-*/
-selectRoad(baseId) {
-// 1. Diciamo allo store di attivare il focus su questo ID base
-this.dssStore.setFocusEdge(baseId);
 
-// 2. Puliamo l'interfaccia di ricerca
-this.searchQuery = '';
-this.searchResults = [];
-
-// Nota: Non chiamiamo handleEdgeSelect qui perché non abbiamo un oggetto 'edge' completo.
-// Sarà la mappa, una volta completato lo zoom, a "consumare" il focus.
-}
 <style>
-/* CSS Globale (Rimasto invariato) */
+/* CSS Toast con Icone */
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #1e293b;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
+}
+.toast-icon { font-size: 16px; }
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 
 :root {
