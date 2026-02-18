@@ -12,6 +12,8 @@ RUN npm install
 
 RUN npm install proj4
 
+RUN npm install pinia
+
 # Copia tutto il resto del codice della tua app Vue
 COPY . .
 

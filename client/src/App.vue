@@ -6,7 +6,7 @@
         <div class="spinner"></div>
         <div class="spinner-text">
           <span>Calcolo percorso in corso...</span>
-          <button class="btn-cancel-calc" @click="cancelCalculation">Annulla (ESC)</button>
+          <button class="btn-cancel-calc" @click="dssStore.currentAbortController?.abort()">Annulla (ESC)</button>
         </div>
       </div>
     </div>
@@ -19,9 +19,7 @@
 
     <header class="dss-header">
       <div class="brand">
-        <span class="brand-bold">QUIDSI</span>
-        <span class="brand-separator">|</span>
-        <span class="brand-sub">TRENTO DSS</span>
+        <span class="brand-bold">QUIDSI</span><span class="brand-separator">|</span><span class="brand-sub">TRENTO DSS</span>
       </div>
 
       <div class="header-search-wrapper">
@@ -37,35 +35,37 @@
       </div>
 
       <div class="header-actions">
-        <button class="btn-reset-global" @click="softReset">↺ RESET</button>
+        <button class="btn-reset-global" @click="dssStore.softReset()">↺ RESET</button>
         <button class="btn-system" @click="ui.fullScreenOpen = true">SISTEMA</button>
       </div>
     </header>
 
     <main class="dss-viewport">
       <MapGraph 
-        :closedEdges="activeClosureIds"
-        :routePath="activeRoutePath"
-        :startPoint="routing.startPoint"
-        :endPoint="routing.endPoint"
-        :cursor="mapCursor"
-        :focusEdgeId="mapFocusId"
+        :closedEdges="dssStore.activeClosureIds"
+        :routePath="dssStore.activeRoutePath"
+        :startPoint="dssStore.routing.startPoint"
+        :endPoint="dssStore.routing.endPoint"
+        :cursor="dssStore.mapCursor"
+        :focusEdgeId="dssStore.mapFocusId"
         :sidebarOpen="ui.panelOpen" 
         @select-edge="handleEdgeSelect" 
         @graph-loaded="handleGraphLoaded"
-        @focus-consumed="mapFocusId = null"
+        @focus-consumed="dssStore.mapFocusId = null"
         @missed-click="handleMissedClick" 
-      /> <RoutingWidget 
-        :startPoint="routing.startPoint" :endPoint="routing.endPoint" :activeMode="routing.activeMode"
-        @toggle-mode="toggleRoutingMode" @calculate="executeDijkstra" 
       />
 
-      <ActiveClosures :closedStreets="activeClosuresObjects" @zoom-to="selectRoad" @reopen="handleQuickReopen" />
+      <RoutingWidget 
+        :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint" :activeMode="dssStore.routing.activeMode"
+        @toggle-mode="dssStore.toggleRoutingMode" @calculate="dssStore.executeDijkstra" 
+      />
+
+      <ActiveClosures />
 
       <MapLegend />
     </main>
 
-    <Sidebar :isOpen="ui.panelOpen" :selectedEdge="selectedEdge" @close="closeSidebar"
+    <Sidebar :isOpen="ui.panelOpen" :selectedEdge="selectedEdge" @close="ui.panelOpen = false"
       @simulate-portion="runSimulation" @simulate-entire="runSimulation" />
 
     <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario" @save-request="handleSaveScenario" />
@@ -77,6 +77,7 @@ import { ApiService } from './services/api';
 import { StorageService } from './services/storage';
 import { SearchService } from './services/searchService';
 import { uiStore } from './store/uiStore';
+import { useDssStore } from './store/dssStore'; // <-- IMPORTA PINIA
 
 import MapGraph from './components/MapGraph.vue';
 import Sidebar from './components/Sidebar.vue';
@@ -88,33 +89,21 @@ import ActiveClosures from './components/ActiveClosures.vue';
 export default {
   name: 'App',
   components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures },
+  
+  // Inizializza gli store per averli a disposizione ovunque
+  setup() {
+    const dssStore = useDssStore();
+    return { dssStore, uiStore };
+  },
+
   data() {
     return {
-      uiStore, 
-      roadList: [], 
-      
-      activeClosureIds: [],
-      activeRoutePath: [],
-      routing: { startPoint: null, endPoint: null, activeMode: null },
-      mapCursor: 'grab',
-      mapFocusId: null,
-
-      selectedEdge: null,
-      searchQuery: '', searchResults: [], searchTimeout: null,
-      currentSearchToken: 0,
+      searchQuery: '', searchResults: [], searchTimeout: null, currentSearchToken: 0,
       ui: { panelOpen: false, fullScreenOpen: false }, 
-      currentAbortController: null,
-      recalcTimeout: null
+      selectedEdge: null
     };
   },
-  computed: {
-    activeClosuresObjects() {
-      return this.activeClosureIds.map(id => {
-        const road = this.roadList.find(r => String(r.id) === String(id));
-        return { id, name: road ? road.street : `Arco ${id}` };
-      });
-    }
-  },
+
   mounted() {
     window.addEventListener('keydown', this.handleKeydown);
     window.addEventListener('offline', this.handleOffline);
@@ -125,166 +114,73 @@ export default {
     window.removeEventListener('offline', this.handleOffline);
     window.removeEventListener('online', this.handleOnline);
     if (this.searchTimeout) clearTimeout(this.searchTimeout);
-    if (this.recalcTimeout) clearTimeout(this.recalcTimeout);
-    this.cancelCalculation();
   },
+
   methods: {
     handleKeydown(e) {
       if (e.key === 'Escape') {
-        if (this.uiStore.isCalculating) this.cancelCalculation();
-        else if (this.routing.activeMode) {
-          this.routing.activeMode = null;
-          this.mapCursor = 'grab';
+        if (this.uiStore.isCalculating) this.dssStore.currentAbortController?.abort();
+        else if (this.dssStore.routing.activeMode) {
+          this.dssStore.toggleRoutingMode(null);
           this.uiStore.showToast('Selezione punto annullata', 'info');
         }
       }
     },
-    handleMissedClick() {
-      this.uiStore.showToast('Nessuna strada trovata qui. Fai zoom o clicca esattamente su una via.', 'warning');
-    },
-    handleOffline() { 
-      this.uiStore.showToast('Connessione di rete assente. L\'app è offline.', 'error'); 
-    },
-    handleOnline() { 
-      this.uiStore.showToast('Connessione ripristinata.', 'success'); 
-    },
+    handleMissedClick() { this.uiStore.showToast('Nessuna strada trovata qui. Fai zoom o clicca esattamente su una via.', 'warning'); },
+    handleOffline() { this.uiStore.showToast('Connessione di rete assente. L\'app è offline.', 'error'); },
+    handleOnline() { this.uiStore.showToast('Connessione ripristinata.', 'success'); },
 
     handleSearch() {
       clearTimeout(this.searchTimeout);
       if (this.searchQuery.length < 2) { this.searchResults = []; return; }
       
       const myToken = ++this.currentSearchToken;
-
       this.searchTimeout = setTimeout(async () => {
         try {
           const results = await SearchService.search(this.searchQuery);
-          if (this.currentSearchToken === myToken) {
-            this.searchResults = results;
-          }
-        } catch (e) {
-          console.error("Errore ricerca:", e);
-        }
+          if (this.currentSearchToken === myToken) this.searchResults = results;
+        } catch (e) { console.error(e); }
       }, 150);
     },
 
     selectRoad(id) {
-      this.mapFocusId = String(id);
+      this.dssStore.setFocusEdge(id);
       this.searchQuery = ''; this.searchResults = [];
     },
 
     handleEdgeSelect(edge) {
-      if (this.routing.activeMode) {
-        if (this.routing.activeMode === 'start') this.routing.startPoint = edge;
-        else this.routing.endPoint = edge;
-        this.routing.activeMode = null;
-        this.mapCursor = 'grab';
+      if (this.dssStore.routing.activeMode) {
+        if (this.dssStore.routing.activeMode === 'start') this.dssStore.routing.startPoint = edge;
+        else this.dssStore.routing.endPoint = edge;
+        this.dssStore.toggleRoutingMode(null);
       } else {
         this.selectedEdge = edge;
         this.ui.panelOpen = true;
       }
     },
 
-    toggleRoutingMode(mode) {
-      this.routing.activeMode = this.routing.activeMode === mode ? null : mode;
-      if (this.routing.activeMode) {
-        this.ui.panelOpen = false;
-        this.mapCursor = 'crosshair';
-        this.uiStore.showToast('Seleziona un punto sulla mappa', 'warning');
-      } else {
-        this.mapCursor = 'grab';
-      }
-    },
-
-    triggerAutoRecalc() {
-      if (this.activeRoutePath.length === 0) return;
-      if (this.recalcTimeout) clearTimeout(this.recalcTimeout);
-      this.recalcTimeout = setTimeout(() => this.executeDijkstra(), 600);
-    },
-
-    async executeDijkstra() {
-      if (!this.routing.startPoint || !this.routing.endPoint) return;
-      
-      this.cancelCalculation();
-
-      this.uiStore.setCalculating(true); 
-      this.currentAbortController = new AbortController();
-      const timeoutId = setTimeout(() => this.cancelCalculation('Timeout'), 15000);
-
-      const payload = {
-        start_id: this.routing.startPoint.id, 
-        end_id: this.routing.endPoint.id,
-        closed_edges: this.activeClosureIds,
-        weights: StorageService.getWeights() 
-      };
-
-      try {
-        const data = await ApiService.calculateRoute(payload, this.currentAbortController.signal);
-        
-        if (data && data.success && data.path && data.path.length) {
-          this.activeRoutePath = data.path; 
-          this.uiStore.showToast('Percorso ottimale ricalcolato', 'success');
-        } else {
-          this.activeRoutePath = []; 
-          this.uiStore.showToast('Nessun percorso disponibile', 'warning');
-        }
-      } catch (error) {
-        if (error.name !== 'AbortError') {
-          this.activeRoutePath = []; 
-          const errMap = { 'ABORTED': 'Calcolo interrotto', 'NOT_FOUND': 'Destinazione isolata', 'VALIDATION_ERROR': 'Punti non validi' };
-          this.uiStore.showToast(errMap[error.message] || 'Errore server', 'error');
-        }
-      } finally {
-        clearTimeout(timeoutId);
-        this.uiStore.setCalculating(false);
-        this.currentAbortController = null;
-      }
-    },
-
-    cancelCalculation() {
-      if (this.currentAbortController) {
-        this.currentAbortController.abort();
-        this.currentAbortController = null;
-      }
-    },
-
     runSimulation() {
       if (!this.selectedEdge) return;
-      const idStr = String(this.selectedEdge.id);
-      
-      if (this.selectedEdge.isClosed) {
-        this.activeClosureIds = this.activeClosureIds.filter(id => id !== idStr);
-      } else {
-        if (!this.activeClosureIds.includes(idStr)) this.activeClosureIds.push(idStr);
-      }
-      
+      this.dssStore.toggleClosure(String(this.selectedEdge.id));
       this.selectedEdge.isClosed = !this.selectedEdge.isClosed;
-      StorageService.saveClosures(this.activeClosureIds);
-      this.triggerAutoRecalc(); 
-    },
-
-    handleQuickReopen(id) {
-      this.activeClosureIds = this.activeClosureIds.filter(c => String(c) !== String(id));
-      StorageService.saveClosures(this.activeClosureIds);
-      this.triggerAutoRecalc();
-      this.uiStore.showToast('Strada ripristinata', 'success');
     },
 
     handleLoadScenario(scenario) {
-      this.softReset();
+      this.dssStore.softReset();
       if (scenario.closed_edges) {
-        this.activeClosureIds = [...scenario.closed_edges];
-        StorageService.saveClosures(this.activeClosureIds);
+        this.dssStore.activeClosureIds = [...scenario.closed_edges];
+        StorageService.saveClosures(this.dssStore.activeClosureIds);
         this.uiStore.showToast(`Scenario "${scenario.name}" attivo`, 'success');
       }
     },
 
     handleSaveScenario(name) {
       this.uiStore.showToast(`Salvataggio "${name}"...`, 'info');
-      ApiService.saveScenario(name, this.activeClosureIds);
+      ApiService.saveScenario(name, this.dssStore.activeClosureIds);
     },
 
     handleGraphLoaded(list) { 
-      this.roadList = list; 
+      this.dssStore.setRoadList(list);
       SearchService.buildIndex(list); 
       
       const savedClosures = StorageService.getClosures(); 
@@ -292,32 +188,24 @@ export default {
         const validIds = new Set(list.map(r => String(r.id)));
         const validClosures = savedClosures.filter(id => validIds.has(String(id)));
 
-        this.activeClosureIds = [...validClosures]; 
+        this.dssStore.activeClosureIds = [...validClosures]; 
 
         if (validClosures.length < savedClosures.length) {
-          StorageService.saveClosures(this.activeClosureIds);
-          this.uiStore.showToast('Il grafo è stato aggiornato: alcune chiusure obsolete sono state rimosse', 'warning');
+          StorageService.saveClosures(this.dssStore.activeClosureIds);
+          this.uiStore.showToast('Il grafo è stato aggiornato: rimosse chiusure obsolete', 'warning');
         } else {
           this.uiStore.showToast('Ripristinate chiusure salvate', 'info');
         }
       }
-    },
-
-    closeSidebar() { this.ui.panelOpen = false; },
-
-    softReset() {
-      this.cancelCalculation();
-      this.routing = { startPoint: null, endPoint: null, activeMode: null };
-      this.selectedEdge = null; this.ui.panelOpen = false;
-      this.activeRoutePath = [];
-      this.activeClosureIds = [];
-      this.mapCursor = 'grab';
-      StorageService.clearClosures(); 
     }
   }
 };
 </script>
 
+<style>
+/* ... Mantieni il tuo blocco di CSS globale di App.vue qui ... */
+/* (Toast, Header, Spinner, ecc... non serve modificarli) */
+</style>
 <style>
 /* CSS Globale */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
