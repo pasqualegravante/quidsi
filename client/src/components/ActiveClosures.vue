@@ -6,8 +6,12 @@
     </div>
 
     <div class="widget-content">
-      <div v-if="!closedStreets || closedStreets.length === 0" class="empty-state">
-        Nessun blocco stradale rilevato.
+      <div v-if="!closedStreets || closedStreets.length === 0" class="empty-state-container">
+        <div class="empty-state-icon">🚧</div>
+        <h4 class="empty-state-title">Nessuna chiusura attiva</h4>
+        <p class="empty-state-text">
+          Clicca su un arco stradale nella mappa per simulare un blocco del traffico o un cantiere.
+        </p>
       </div>
       
       <ul v-else class="closure-list">
@@ -29,7 +33,6 @@
 <script>
 export default {
   name: 'ActiveClosures',
-  // IL FIX È QUI: dobbiamo dichiarare esplicitamente cosa riceviamo dal padre
   props: {
     closedStreets: {
       type: Array,
@@ -57,17 +60,77 @@ export default {
   max-height: 220px;
   transition: all 0.3s ease;
 }
-.is-empty { opacity: 0.6; }
-.widget-header { padding: 8px 12px; background: #0f172a; color: white; display: flex; justify-content: space-between; align-items: center; border-radius: 7px 7px 0 0; }
+
+/* Quando è vuoto, lo rendiamo un po' più trasparente per non ostruire la mappa */
+.is-empty { 
+  opacity: 0.85; 
+  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+}
+
+.widget-header { 
+  padding: 8px 12px; 
+  background: #0f172a; 
+  color: white; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  border-radius: 7px 7px 0 0; 
+}
+
 .title { font-size: 9px; font-weight: 900; letter-spacing: 0.5px; }
 .count-badge { background: #ef4444; font-size: 9px; padding: 2px 6px; border-radius: 10px; font-weight: 800; }
 .widget-content { overflow-y: auto; flex: 1; }
-.empty-state { padding: 15px; font-size: 10px; color: #94a3b8; text-align: center; }
+
+/* STILI NUOVO EMPTY STATE */
+.empty-state-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 15px;
+  text-align: center;
+  background: #f8fafc;
+}
+
+.empty-state-icon {
+  font-size: 24px;
+  margin-bottom: 8px;
+  opacity: 0.6;
+  filter: grayscale(0.5);
+}
+
+.empty-state-title {
+  margin: 0 0 6px 0;
+  font-size: 11px;
+  font-weight: 800;
+  color: #475569;
+}
+
+.empty-state-text {
+  margin: 0;
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* Lista chiusure attive */
 .closure-list { list-style: none; padding: 0; margin: 0; }
 .closure-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; border-bottom: 1px solid #f1f5f9; }
 .info { display: flex; flex-direction: column; }
 .name { font-size: 10px; font-weight: 700; color: #1e293b; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .details { font-size: 8px; color: #94a3b8; }
 .actions { display: flex; gap: 4px; }
-.btn-zoom, .btn-open { background: white; border: 1px solid #e2e8f0; border-radius: 4px; padding: 4px; cursor: pointer; font-size: 10px; }
+.btn-zoom, .btn-open { 
+  background: white; 
+  border: 1px solid #e2e8f0; 
+  border-radius: 4px; 
+  padding: 4px; 
+  cursor: pointer; 
+  font-size: 10px; 
+  transition: all 0.2s;
+}
+.btn-zoom:hover, .btn-open:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
 </style>

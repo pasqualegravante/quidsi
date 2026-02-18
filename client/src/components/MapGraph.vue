@@ -10,6 +10,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
 import { markRaw } from 'vue';
+import { StorageService } from '../services/storage'; // <-- AGGIUNTO
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -24,7 +25,7 @@ export default {
     endPoint: { type: Object, default: null },
     cursor: { type: String, default: 'grab' },
     focusEdgeId: { type: String, default: null },
-    sidebarOpen: { type: Boolean, default: false } // <-- AGGIUNTO: Riceve lo stato del pannello
+    sidebarOpen: { type: Boolean, default: false } 
   },
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
   data() {
@@ -32,37 +33,27 @@ export default {
       map: null, graphLayer: null, lastSelected: null, loading: false,
       uidIndex: {}, groupIndex: {},
       routeMarkers: { start: null, end: null },
-      statusIconLayer: null
+      statusIconLayer: null,
+      mapStateTimeout: null // <-- Per evitare di spammare il localStorage muovendo il mouse
     };
   },
   watch: {
-    closedEdges: {
-      handler(newIds) { this.syncClosures(newIds); },
-      deep: true
-    },
-    routePath: {
-      handler(newPath) { this.syncRoutePath(newPath); },
-      deep: true
-    },
+    closedEdges: { handler(newIds) { this.syncClosures(newIds); }, deep: true },
+    routePath: { handler(newPath) { this.syncRoutePath(newPath); }, deep: true },
     startPoint(newVal) { this.syncMarker('start', newVal); },
     endPoint(newVal) { this.syncMarker('end', newVal); },
     cursor(newVal) { if (this.$refs.mapContainer) this.$refs.mapContainer.style.cursor = newVal; },
     focusEdgeId(newId) { 
-      if (newId) { 
-        this.zoomToEdgeGroup(newId); 
-        this.$emit('focus-consumed');
-      } 
+      if (newId) { this.zoomToEdgeGroup(newId); this.$emit('focus-consumed'); } 
     },
-    // <-- AGGIUNTO: Ricalcola la mappa quando la sidebar si muove
     sidebarOpen() {
-      setTimeout(() => {
-        if (this.map) this.map.invalidateSize();
-      }, 300);
+      setTimeout(() => { if (this.map) this.map.invalidateSize(); }, 300);
     }
   },
   mounted() { this.initMap(); this.loadGraph(); },
   
   beforeUnmount() {
+    if (this.mapStateTimeout) clearTimeout(this.mapStateTimeout);
     if (this.map) {
       this.map.off();
       this.map.remove();
@@ -72,24 +63,49 @@ export default {
 
   methods: {
     initMap() {
+      // 1. MEMORIA SPAZIALE: Recupero stato precedente
+      const savedState = StorageService.getMapState();
+      const initialCenter = savedState ? [savedState.lat, savedState.lng] : [46.0665, 11.1216];
+      const initialZoom = savedState ? savedState.zoom : 17;
+
       this.map = markRaw(L.map(this.$refs.mapContainer, { 
         zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, maxBoundsViscosity: 1.0, minZoom: 12 
-      }).setView([46.0665, 11.1216], 17)); 
+      }).setView(initialCenter, initialZoom)); 
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
+      // 2. FALLBACK MAPPA: Tile Provider di sicurezza
+      const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
         attribution: '&copy; OSM', bounds: TRENTO_BOUNDS 
-      }).addTo(this.map);
+      });
+
+      let fallbackTriggered = false;
+      tileLayer.on('tileerror', () => {
+        if (!fallbackTriggered) {
+          fallbackTriggered = true;
+          // Se CartoDB cade, passiamo all'OSM standard per non lasciare lo schermo grigio
+          tileLayer.setUrl('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
+          console.warn("CartoDB irraggiungibile. Attivato fallback su OpenStreetMap.");
+        }
+      });
+      tileLayer.addTo(this.map);
       
       this.statusIconLayer = markRaw(L.layerGroup()).addTo(this.map); 
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
 
       this.map.on('click', () => {
-        if (this.cursor === 'crosshair') {
-          this.$emit('missed-click');
-        } else {
-          this.$emit('focus-consumed');
-        }
+        if (this.cursor === 'crosshair') this.$emit('missed-click');
+        else this.$emit('focus-consumed');
       });
+
+      // 3. MEMORIA SPAZIALE: Salvataggio stato con debounce (aspetta 1 sec dalla fine del movimento)
+      const saveState = () => {
+        if (this.mapStateTimeout) clearTimeout(this.mapStateTimeout);
+        this.mapStateTimeout = setTimeout(() => {
+          const center = this.map.getCenter();
+          StorageService.saveMapState({ lat: center.lat, lng: center.lng, zoom: this.map.getZoom() });
+        }, 1000);
+      };
+      this.map.on('moveend', saveState);
+      this.map.on('zoomend', saveState);
     },
 
     async loadGraph() {
@@ -118,6 +134,19 @@ export default {
             if (!this.groupIndex[dbId]) this.groupIndex[dbId] = [];
             this.groupIndex[dbId].push(layer);
             
+            // 4. SCOPRIBILITÀ: Effetto Hover
+            layer.on('mouseover', () => {
+              // Evitiamo di fare l'hover sulle strade chiuse, su quelle del percorso o su quella già selezionata
+              if (this.lastSelected !== layer && !feature.properties.isRoutePath && !feature.properties.isClosed) {
+                layer.setStyle({ weight: 6, color: '#60a5fa', opacity: 1 });
+              }
+            });
+            layer.on('mouseout', () => {
+              if (this.lastSelected !== layer) {
+                this.graphLayer.resetStyle(layer); // Riporta lo stile originale calcolato dinamicamente
+              }
+            });
+
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               this.highlight(layer);
@@ -134,7 +163,8 @@ export default {
         if (this.closedEdges.length) this.syncClosures(this.closedEdges);
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
-
+    
+    // ... [TUTTI GLI ALTRI METODI RIMANGONO ESATTAMENTE IDENTICI: syncClosures, syncRoutePath, syncMarker, updateStatusIcons, zoomToEdgeGroup, highlight] ...
     syncClosures(closedIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(closedIds.map(String));
