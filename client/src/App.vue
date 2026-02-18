@@ -12,13 +12,15 @@
 
     <div class="toast-container">
       <transition-group name="toast-anim">
-        <div v-for="toast in uiStore.toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">{{ toast.message }}</div>
+        <div v-for="toast in uiStore.toasts" :key="toast.id" :class="['toast', `toast-${toast.type}`]">{{ toast.message
+          }}</div>
       </transition-group>
     </div>
 
     <header class="dss-header">
       <div class="brand">
-        <span class="brand-bold">QUIDSI</span><span class="brand-separator">|</span><span class="brand-sub">TRENTO DSS</span>
+        <span class="brand-bold">QUIDSI</span><span class="brand-separator">|</span><span class="brand-sub">TRENTO
+          DSS</span>
       </div>
 
       <div class="header-search-wrapper">
@@ -40,46 +42,26 @@
     </header>
 
     <main class="dss-viewport">
-      <MapGraph 
-        :closedEdges="dssStore.activeClosureIds"
-        :routePath="dssStore.activeRoutePath"
-        :startPoint="dssStore.routing.startPoint"
-        :endPoint="dssStore.routing.endPoint"
-        :cursor="dssStore.mapCursor"
-        :focusEdgeId="dssStore.mapFocusId"
-        :sidebarOpen="dssStore.isSidebarOpen" 
-        @select-edge="handleEdgeSelect" 
-        @graph-loaded="handleGraphLoaded"
-        @focus-consumed="dssStore.mapFocusId = null"
-        @missed-click="handleMissedClick" 
-      />
+      <MapGraph :closedEdges="dssStore.activeClosureIds" :routePath="dssStore.activeRoutePath"
+        :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint" :cursor="dssStore.mapCursor"
+        :focusEdgeId="dssStore.mapFocusId" :sidebarOpen="dssStore.isSidebarOpen" @select-edge="handleEdgeSelect"
+        @graph-loaded="handleGraphLoaded" @focus-consumed="dssStore.mapFocusId = null"
+        @missed-click="handleMissedClick" />
 
-      <Sidebar 
-        :isOpen="dssStore.isSidebarOpen" 
-        :selectedEdge="dssStore.selectedEdge" 
-        @close="dssStore.closeSidebar()"
-        @simulate-portion="dssStore.toggleClosure(dssStore.selectedEdge, false)" 
-        @simulate-entire="dssStore.toggleClosure(dssStore.selectedEdge, true)" 
-      />
+      <Sidebar :isOpen="dssStore.isSidebarOpen" :selectedEdge="dssStore.selectedEdge" @close="dssStore.closeSidebar()"
+        @simulate-portion="dssStore.toggleClosure(dssStore.selectedEdge, false)"
+        @simulate-entire="dssStore.toggleClosure(dssStore.selectedEdge, true)" />
 
-      <RoutingWidget 
-        :startPoint="dssStore.routing.startPoint" 
-        :endPoint="dssStore.routing.endPoint" 
-        :activeMode="dssStore.routing.activeMode"
-        @toggle-mode="dssStore.toggleRoutingMode" 
-        @calculate="dssStore.executeDijkstra" 
-      />
+      <RoutingWidget :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint"
+        :activeMode="dssStore.routing.activeMode" @toggle-mode="dssStore.toggleRoutingMode"
+        @calculate="dssStore.executeDijkstra" />
 
       <ActiveClosures />
       <MapLegend />
     </main>
 
-    <FullscreenMenu 
-      :isOpen="ui.fullScreenOpen" 
-      @close="ui.fullScreenOpen = false" 
-      @load-scenario="handleLoadScenario" 
-      @save-request="handleSaveScenario" 
-    />
+    <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario"
+      @save-request="handleSaveScenario" />
   </div>
 </template>
 
@@ -100,7 +82,7 @@ import ActiveClosures from './components/ActiveClosures.vue';
 export default {
   name: 'App',
   components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures },
-  
+
   setup() {
     const dssStore = useDssStore();
     return { dssStore, uiStore };
@@ -108,9 +90,9 @@ export default {
 
   data() {
     return {
-      searchQuery: '', 
-      searchResults: [], 
-      searchTimeout: null, 
+      searchQuery: '',
+      searchResults: [],
+      searchTimeout: null,
       currentSearchToken: 0,
       ui: { fullScreenOpen: false }
     };
@@ -121,7 +103,7 @@ export default {
     window.addEventListener('offline', this.handleOffline);
     window.addEventListener('online', this.handleOnline);
   },
-  
+
   beforeUnmount() {
     window.removeEventListener('keydown', this.handleKeydown);
     window.removeEventListener('offline', this.handleOffline);
@@ -159,16 +141,26 @@ export default {
      * Gestisce la selezione di una via dai risultati di ricerca.
      * @param {string} baseId - Il codice base della via (es. 1040).
      */
+    // In App.vue -> methods
+
     selectRoad(baseId) {
-      // 1. Diciamo allo store di attivare il focus su questo ID base
+      // 1. Attiva il focus (zoom mappa)
       this.dssStore.setFocusEdge(baseId);
-      
-      // 2. Puliamo l'interfaccia di ricerca
-      this.searchQuery = ''; 
+
+      // 2. FIX: Tenta di aprire la sidebar immediatamente se abbiamo i dati minimi nello store
+      const roadData = this.dssStore.roadList.find(r => r.id.startsWith(baseId));
+      if (roadData) {
+        this.dssStore.openSidebar({
+          id: roadData.id,
+          street: roadData.street,
+          uid: roadData.uid
+          // Gli altri dettagli (oneWay, isClosed) verranno aggiornati dallo store
+        });
+      }
+
+      // 3. Pulisce l'interfaccia
+      this.searchQuery = '';
       this.searchResults = [];
-      
-      // Nota: Non chiamiamo handleEdgeSelect qui perché non abbiamo un oggetto 'edge' completo.
-      // Sarà la mappa, una volta completato lo zoom, a "consumare" il focus.
     },
 
     handleEdgeSelect(edge) {
@@ -187,7 +179,7 @@ export default {
      */
     handleLoadScenario(scenario) {
       this.dssStore.closeSidebar();
-      
+
       if (scenario.closed_edges) {
         const allRoads = this.dssStore.roadList;
         const expandedIds = [];
@@ -212,19 +204,19 @@ export default {
       this.uiStore.showToast(`Salvataggio "${name}"...`, 'info');
       ApiService.saveScenario(name, this.dssStore.activeClosureIds);
     },
-    
-    handleGraphLoaded(list) { 
+
+    handleGraphLoaded(list) {
       this.dssStore.setRoadList(list);
-      SearchService.buildIndex(list); 
-      
-      const savedClosures = StorageService.getClosures(); 
+      SearchService.buildIndex(list);
+
+      const savedClosures = StorageService.getClosures();
       if (savedClosures && savedClosures.length > 0) {
         const validIds = new Set(list.map(r => String(r.id)));
-        const validClosures = savedClosures.filter(id => 
+        const validClosures = savedClosures.filter(id =>
           id !== 'undefined' && id !== 'null' && validIds.has(String(id))
         );
 
-        this.dssStore.activeClosureIds = [...validClosures]; 
+        this.dssStore.activeClosureIds = [...validClosures];
         if (validClosures.length !== savedClosures.length) {
           StorageService.saveClosures(this.dssStore.activeClosureIds);
         }
@@ -237,48 +229,273 @@ export default {
 };
 </script>
 /**
-     * Gestisce la selezione di una via dai risultati di ricerca.
-     * @param {string} baseId - Il codice base della via (es. 1040).
-     */
-    selectRoad(baseId) {
-      // 1. Diciamo allo store di attivare il focus su questo ID base
-      this.dssStore.setFocusEdge(baseId);
-      
-      // 2. Puliamo l'interfaccia di ricerca
-      this.searchQuery = ''; 
-      this.searchResults = [];
-      
-      // Nota: Non chiamiamo handleEdgeSelect qui perché non abbiamo un oggetto 'edge' completo.
-      // Sarà la mappa, una volta completato lo zoom, a "consumare" il focus.
-    }
+* Gestisce la selezione di una via dai risultati di ricerca.
+* @param {string} baseId - Il codice base della via (es. 1040).
+*/
+selectRoad(baseId) {
+// 1. Diciamo allo store di attivare il focus su questo ID base
+this.dssStore.setFocusEdge(baseId);
+
+// 2. Puliamo l'interfaccia di ricerca
+this.searchQuery = '';
+this.searchResults = [];
+
+// Nota: Non chiamiamo handleEdgeSelect qui perché non abbiamo un oggetto 'edge' completo.
+// Sarà la mappa, una volta completato lo zoom, a "consumare" il focus.
+}
 <style>
 /* CSS Globale (Rimasto invariato) */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 
-:root { --dss-navy: #0f172a; --dss-blue: #2563eb; --header-height: 60px; }
-body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: 'Inter', sans-serif; background: #f1f5f9; }
-.dss-main-container { display: flex; flex-direction: column; height: 100vh; position: relative; }
-.global-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(3px); z-index: 5000; display: flex; align-items: center; justify-content: center; cursor: wait; }
-.spinner-container { background: white; padding: 20px 30px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 18px; font-weight: 800; color: #1e293b; font-size: 14px; }
-.spinner { width: 28px; height: 28px; border: 4px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: spin 1s linear infinite; }
-.spinner-text { display: flex; flex-direction: column; gap: 6px; }
-.btn-cancel-calc { background: transparent; border: 1px solid #ef4444; color: #ef4444; padding: 4px 8px; border-radius: 4px; font-size: 10px; cursor: pointer; font-weight: 800; transition: 0.2s; align-self: flex-start; }
-.btn-cancel-calc:hover { background: #fee2e2; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.toast-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-.toast { background: #1e293b; color: white; padding: 12px 24px; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); pointer-events: auto; }
-.toast-success { border-bottom: 3px solid #10b981; } .toast-warning { border-bottom: 3px solid #f59e0b; } .toast-error { border-bottom: 3px solid #ef4444; } .toast-info { border-bottom: 3px solid #3b82f6; }
-.dss-header { height: var(--header-height); background: var(--dss-navy); color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 2rem; z-index: 2000; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
-.brand { display: flex; align-items: center; font-size: 14px; letter-spacing: 1px; } .brand-bold { font-weight: 800; color: var(--dss-blue); } .brand-separator { margin: 0 10px; opacity: 0.3; }
-.header-search-wrapper { flex: 0 1 400px; position: relative; }
-.search-input-group input { width: 100%; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 15px; border-radius: 6px; color: white; outline: none; transition: 0.3s; }
-.search-input-group input:focus { background: white; color: black; }
-.search-dropdown { position: absolute; top: 110%; left: 0; right: 0; background: white; border-radius: 6px; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2); list-style: none; padding: 5px 0; margin: 0; z-index: 3000; }
-.search-dropdown li { padding: 10px 15px; cursor: pointer; color: #333; border-bottom: 1px solid #f1f5f9; display: flex; flex-direction: column; } .search-dropdown li:hover { background: #eff6ff; }
-.header-actions { display: flex; align-items: center; gap: 15px; }
-.btn-reset-global { background: transparent; color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.2); padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; }
-.btn-system { background: var(--dss-blue); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 700; cursor: pointer; }
-.dss-viewport { flex: 1; position: relative; }
-.toast-anim-enter-active, .toast-anim-leave-active { transition: all 0.3s; }
-.toast-anim-enter-from { opacity: 0; transform: translateY(20px); } .toast-anim-leave-to { opacity: 0; transform: translateY(-20px); }
+:root {
+  --dss-navy: #0f172a;
+  --dss-blue: #2563eb;
+  --header-height: 60px;
+}
+
+body,
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Inter', sans-serif;
+  background: #f1f5f9;
+}
+
+.dss-main-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: relative;
+}
+
+.global-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.4);
+  backdrop-filter: blur(3px);
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: wait;
+}
+
+.spinner-container {
+  background: white;
+  padding: 20px 30px;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-weight: 800;
+  color: #1e293b;
+  font-size: 14px;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 4px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.spinner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.btn-cancel-calc {
+  background: transparent;
+  border: 1px solid #ef4444;
+  color: #ef4444;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  font-weight: 800;
+  transition: 0.2s;
+  align-self: flex-start;
+}
+
+.btn-cancel-calc:hover {
+  background: #fee2e2;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.toast-container {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  background: #1e293b;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  pointer-events: auto;
+}
+
+.toast-success {
+  border-bottom: 3px solid #10b981;
+}
+
+.toast-warning {
+  border-bottom: 3px solid #f59e0b;
+}
+
+.toast-error {
+  border-bottom: 3px solid #ef4444;
+}
+
+.toast-info {
+  border-bottom: 3px solid #3b82f6;
+}
+
+.dss-header {
+  height: var(--header-height);
+  background: var(--dss-navy);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  z-index: 2000;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  letter-spacing: 1px;
+}
+
+.brand-bold {
+  font-weight: 800;
+  color: var(--dss-blue);
+}
+
+.brand-separator {
+  margin: 0 10px;
+  opacity: 0.3;
+}
+
+.header-search-wrapper {
+  flex: 0 1 400px;
+  position: relative;
+}
+
+.search-input-group input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 8px 15px;
+  border-radius: 6px;
+  color: white;
+  outline: none;
+  transition: 0.3s;
+}
+
+.search-input-group input:focus {
+  background: white;
+  color: black;
+}
+
+.search-dropdown {
+  position: absolute;
+  top: 110%;
+  left: 0;
+  right: 0;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  list-style: none;
+  padding: 5px 0;
+  margin: 0;
+  z-index: 3000;
+}
+
+.search-dropdown li {
+  padding: 10px 15px;
+  cursor: pointer;
+  color: #333;
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+}
+
+.search-dropdown li:hover {
+  background: #eff6ff;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.btn-reset-global {
+  background: transparent;
+  color: #94a3b8;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-system {
+  background: var(--dss-blue);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dss-viewport {
+  flex: 1;
+  position: relative;
+}
+
+.toast-anim-enter-active,
+.toast-anim-leave-active {
+  transition: all 0.3s;
+}
+
+.toast-anim-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.toast-anim-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}
 </style>
