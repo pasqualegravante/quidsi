@@ -4,7 +4,7 @@
       
       <div class="panel-header">
         <h2 class="panel-title">ISPEZIONE ARCO</h2>
-        <button class="close-btn" @click="$emit('close')">×</button>
+        <button class="btn-close" @click="$emit('close')">×</button>
       </div>
 
       <div class="panel-content" v-if="selectedEdge">

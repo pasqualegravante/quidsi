@@ -42,19 +42,26 @@
 
     <main class="dss-viewport">
       <MapGraph 
-        :closedEdges="dssStore.activeClosureIds"
-        :routePath="dssStore.activeRoutePath"
-        :startPoint="dssStore.routing.startPoint"
-        :endPoint="dssStore.routing.endPoint"
-        :cursor="dssStore.mapCursor"
-        :focusEdgeId="dssStore.mapFocusId"
-        :sidebarOpen="ui.panelOpen" 
-        @select-edge="handleEdgeSelect" 
-        @graph-loaded="handleGraphLoaded"
-        @focus-consumed="dssStore.mapFocusId = null"
-        @missed-click="handleMissedClick" 
-      />
+      :closedEdges="dssStore.activeClosureIds"
+      :routePath="dssStore.activeRoutePath"
+      :startPoint="dssStore.routing.startPoint"
+      :endPoint="dssStore.routing.endPoint"
+      :cursor="dssStore.mapCursor"
+      :focusEdgeId="dssStore.mapFocusId"
+      :sidebarOpen="dssStore.isSidebarOpen" 
+      @select-edge="handleEdgeSelect" 
+      @graph-loaded="handleGraphLoaded"
+      @focus-consumed="dssStore.mapFocusId = null"
+      @missed-click="handleMissedClick" 
+    />
 
+    <Sidebar 
+      :isOpen="dssStore.isSidebarOpen" 
+      :selectedEdge="dssStore.selectedEdge" 
+      @close="dssStore.closeSidebar()"
+      @simulate-portion="dssStore.toggleClosure(dssStore.selectedEdge, false)" 
+      @simulate-entire="dssStore.toggleClosure(dssStore.selectedEdge, true)" 
+    />
       <RoutingWidget 
         :startPoint="dssStore.routing.startPoint" :endPoint="dssStore.routing.endPoint" :activeMode="dssStore.routing.activeMode"
         @toggle-mode="dssStore.toggleRoutingMode" @calculate="dssStore.executeDijkstra" 
@@ -64,10 +71,6 @@
 
       <MapLegend />
     </main>
-
-    <Sidebar :isOpen="ui.panelOpen" :selectedEdge="selectedEdge" @close="ui.panelOpen = false"
-      @simulate-portion="runSimulation" @simulate-entire="runSimulation" />
-
     <FullscreenMenu :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" @load-scenario="handleLoadScenario" @save-request="handleSaveScenario" />
   </div>
 </template>
@@ -77,7 +80,7 @@ import { ApiService } from './services/api';
 import { StorageService } from './services/storage';
 import { SearchService } from './services/searchService';
 import { uiStore } from './store/uiStore';
-import { useDssStore } from './store/dssStore'; // <-- IMPORTA PINIA
+import { useDssStore } from './store/dssStore';
 
 import MapGraph from './components/MapGraph.vue';
 import Sidebar from './components/Sidebar.vue';
@@ -86,11 +89,12 @@ import RoutingWidget from './components/RoutingWidget.vue';
 import MapLegend from './components/MapLegend.vue';
 import ActiveClosures from './components/ActiveClosures.vue';
 
+
+
 export default {
   name: 'App',
   components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures },
   
-  // Inizializza gli store per averli a disposizione ovunque
   setup() {
     const dssStore = useDssStore();
     return { dssStore, uiStore };
@@ -99,8 +103,7 @@ export default {
   data() {
     return {
       searchQuery: '', searchResults: [], searchTimeout: null, currentSearchToken: 0,
-      ui: { panelOpen: false, fullScreenOpen: false }, 
-      selectedEdge: null
+      ui: { fullScreenOpen: false } // Rimosso selectedEdge
     };
   },
 
@@ -133,7 +136,6 @@ export default {
     handleSearch() {
       clearTimeout(this.searchTimeout);
       if (this.searchQuery.length < 2) { this.searchResults = []; return; }
-      
       const myToken = ++this.currentSearchToken;
       this.searchTimeout = setTimeout(async () => {
         try {
@@ -148,21 +150,15 @@ export default {
       this.searchQuery = ''; this.searchResults = [];
     },
 
+    // QUESTA È L'UNICA VERSIONE CHE DEVE ESISTERE DI QUESTO METODO
     handleEdgeSelect(edge) {
       if (this.dssStore.routing.activeMode) {
         if (this.dssStore.routing.activeMode === 'start') this.dssStore.routing.startPoint = edge;
         else this.dssStore.routing.endPoint = edge;
         this.dssStore.toggleRoutingMode(null);
       } else {
-        this.selectedEdge = edge;
-        this.ui.panelOpen = true;
+        this.dssStore.openSidebar(edge); // Chiama Pinia correttamente
       }
-    },
-
-    runSimulation() {
-      if (!this.selectedEdge) return;
-      this.dssStore.toggleClosure(String(this.selectedEdge.id));
-      this.selectedEdge.isClosed = !this.selectedEdge.isClosed;
     },
 
     handleLoadScenario(scenario) {
@@ -178,22 +174,27 @@ export default {
       this.uiStore.showToast(`Salvataggio "${name}"...`, 'info');
       ApiService.saveScenario(name, this.dssStore.activeClosureIds);
     },
-
+    
     handleGraphLoaded(list) { 
       this.dssStore.setRoadList(list);
       SearchService.buildIndex(list); 
       
       const savedClosures = StorageService.getClosures(); 
-      if (savedClosures.length > 0) {
+      
+      if (savedClosures && savedClosures.length > 0) {
         const validIds = new Set(list.map(r => String(r.id)));
-        const validClosures = savedClosures.filter(id => validIds.has(String(id)));
+        const validClosures = savedClosures.filter(id => 
+          id !== 'undefined' && id !== 'null' && validIds.has(String(id))
+        );
 
         this.dssStore.activeClosureIds = [...validClosures]; 
 
-        if (validClosures.length < savedClosures.length) {
+        if (validClosures.length !== savedClosures.length) {
           StorageService.saveClosures(this.dssStore.activeClosureIds);
-          this.uiStore.showToast('Il grafo è stato aggiornato: rimosse chiusure obsolete', 'warning');
-        } else {
+          console.warn("Pulizia cache effettuata: rimossi ID corrotti.");
+        }
+
+        if (validClosures.length > 0) {
           this.uiStore.showToast('Ripristinate chiusure salvate', 'info');
         }
       }
@@ -202,10 +203,6 @@ export default {
 };
 </script>
 
-<style>
-/* ... Mantieni il tuo blocco di CSS globale di App.vue qui ... */
-/* (Toast, Header, Spinner, ecc... non serve modificarli) */
-</style>
 <style>
 /* CSS Globale */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');

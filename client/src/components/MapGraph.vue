@@ -4,13 +4,12 @@
     <div v-if="loading" class="map-loader">Sincronizzazione Grafo...</div>
   </div>
 </template>
-
 <script>
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
 import { markRaw } from 'vue';
-import { StorageService } from '../services/storage'; // <-- AGGIUNTO
+import { StorageService } from '../services/storage';
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -28,28 +27,43 @@ export default {
     sidebarOpen: { type: Boolean, default: false } 
   },
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
+  
+  // FIX CRITICO: Teniamo gli indici di Leaflet FUORI dalla reattività di Vue
+  created() {
+    this.uidIndex = {}; 
+    this.groupIndex = {};
+  },
+
   data() {
     return {
-      map: null, graphLayer: null, lastSelected: null, loading: false,
-      uidIndex: {}, groupIndex: {},
+      map: null, graphLayer: null, loading: false,
       routeMarkers: { start: null, end: null },
-      statusIconLayer: null,
-      mapStateTimeout: null // <-- Per evitare di spammare il localStorage muovendo il mouse
+      statusIconLayer: null, mapStateTimeout: null,
+      
+      // FIX CRITICO: Salviamo solo una stringa testuale, NON l'oggetto mappa!
+      lastSelectedUid: null 
     };
   },
+  
   watch: {
     closedEdges: { handler(newIds) { this.syncClosures(newIds); }, deep: true },
     routePath: { handler(newPath) { this.syncRoutePath(newPath); }, deep: true },
     startPoint(newVal) { this.syncMarker('start', newVal); },
     endPoint(newVal) { this.syncMarker('end', newVal); },
     cursor(newVal) { if (this.$refs.mapContainer) this.$refs.mapContainer.style.cursor = newVal; },
-    focusEdgeId(newId) { 
-      if (newId) { this.zoomToEdgeGroup(newId); this.$emit('focus-consumed'); } 
-    },
-    sidebarOpen() {
+    focusEdgeId(newId) { if (newId) { this.zoomToEdgeGroup(newId); this.$emit('focus-consumed'); } },
+    
+    // Spegne il giallo e pulisce la memoria visiva quando chiudi la barra
+    sidebarOpen(newVal) {
       setTimeout(() => { if (this.map) this.map.invalidateSize(); }, 300);
+      if (!newVal && this.lastSelectedUid) {
+        const prevLayer = this.uidIndex[this.lastSelectedUid];
+        this.lastSelectedUid = null;
+        if (prevLayer) this.graphLayer.resetStyle(prevLayer);
+      }
     }
   },
+  
   mounted() { this.initMap(); this.loadGraph(); },
   
   beforeUnmount() {
@@ -63,7 +77,6 @@ export default {
 
   methods: {
     initMap() {
-      // 1. MEMORIA SPAZIALE: Recupero stato precedente
       const savedState = StorageService.getMapState();
       const initialCenter = savedState ? [savedState.lat, savedState.lng] : [46.0665, 11.1216];
       const initialZoom = savedState ? savedState.zoom : 17;
@@ -72,19 +85,8 @@ export default {
         zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, maxBoundsViscosity: 1.0, minZoom: 12 
       }).setView(initialCenter, initialZoom)); 
 
-      // 2. FALLBACK MAPPA: Tile Provider di sicurezza
       const tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { 
         attribution: '&copy; OSM', bounds: TRENTO_BOUNDS 
-      });
-
-      let fallbackTriggered = false;
-      tileLayer.on('tileerror', () => {
-        if (!fallbackTriggered) {
-          fallbackTriggered = true;
-          // Se CartoDB cade, passiamo all'OSM standard per non lasciare lo schermo grigio
-          tileLayer.setUrl('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png');
-          console.warn("CartoDB irraggiungibile. Attivato fallback su OpenStreetMap.");
-        }
       });
       tileLayer.addTo(this.map);
       
@@ -96,7 +98,6 @@ export default {
         else this.$emit('focus-consumed');
       });
 
-      // 3. MEMORIA SPAZIALE: Salvataggio stato con debounce (aspetta 1 sec dalla fine del movimento)
       const saveState = () => {
         if (this.mapStateTimeout) clearTimeout(this.mapStateTimeout);
         this.mapStateTimeout = setTimeout(() => {
@@ -130,27 +131,34 @@ export default {
             const uid = String(L.stamp(layer)); 
             feature.properties._uid = uid; 
             const dbId = String(feature.properties.codice);
+            
+            // Salviamo nei registri non reattivi
             this.uidIndex[uid] = layer;
             if (!this.groupIndex[dbId]) this.groupIndex[dbId] = [];
             this.groupIndex[dbId].push(layer);
             
-            // 4. SCOPRIBILITÀ: Effetto Hover
+            // HOVER
             layer.on('mouseover', () => {
-              // Evitiamo di fare l'hover sulle strade chiuse, su quelle del percorso o su quella già selezionata
-              if (this.lastSelected !== layer && !feature.properties.isRoutePath && !feature.properties.isClosed) {
+              if (this.lastSelectedUid !== uid && !feature.properties.isRoutePath && !feature.properties.isClosed) {
                 layer.setStyle({ weight: 6, color: '#60a5fa', opacity: 1 });
               }
             });
+            
+            // MOUSEOUT BLINDATO: Se sposti il mouse, non toglie il giallo!
             layer.on('mouseout', () => {
-              if (this.lastSelected !== layer) {
-                this.graphLayer.resetStyle(layer); // Riporta lo stile originale calcolato dinamicamente
+              if (this.lastSelectedUid !== uid) {
+                this.graphLayer.resetStyle(layer);
               }
             });
 
+            // CLICK
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               this.highlight(layer);
-              this.$emit('select-edge', { uid: uid, id: dbId, street: feature.properties.desvia, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
+              this.$emit('select-edge', { 
+                uid: uid, id: dbId, street: feature.properties.desvia, 
+                oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed 
+              });
             });
           }
         });
@@ -164,16 +172,23 @@ export default {
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
     
-    // ... [TUTTI GLI ALTRI METODI RIMANGONO ESATTAMENTE IDENTICI: syncClosures, syncRoutePath, syncMarker, updateStatusIcons, zoomToEdgeGroup, highlight] ...
     syncClosures(closedIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(closedIds.map(String));
+      
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.codice);
+        const uid = String(layer.feature.properties._uid);
         const shouldBeClosed = setIds.has(id);
+        
         if (layer.feature.properties.isClosed !== shouldBeClosed) {
           layer.feature.properties.isClosed = shouldBeClosed;
+          
           this.graphLayer.resetStyle(layer);
+          
+          if (this.lastSelectedUid === uid) {
+            layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
+          }
         }
       });
       this.updateStatusIcons();
@@ -182,16 +197,24 @@ export default {
     syncRoutePath(pathIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(pathIds.map(String));
+      
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.codice);
+        const uid = String(layer.feature.properties._uid);
         const shouldBeRoute = setIds.has(id);
+        
         if (layer.feature.properties.isRoutePath !== shouldBeRoute) {
           layer.feature.properties.isRoutePath = shouldBeRoute;
+          
           this.graphLayer.resetStyle(layer);
-          if (shouldBeRoute) layer.bringToFront();
+          
+          if (this.lastSelectedUid === uid) {
+            layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
+          } else if (shouldBeRoute) {
+            layer.bringToFront();
+          }
         }
       });
-      if (this.statusIconLayer) this.statusIconLayer.bringToFront();
     },
 
     syncMarker(type, point) {
@@ -201,37 +224,23 @@ export default {
       }
       if (!point) return;
 
-      const layer = this.uidIndex[point.uid]; 
+      const layer = this.uidIndex[point.uid] || this.groupIndex[point.id]?.[0]; 
       if (!layer) return;
       
       let latlngs = layer.getLatLngs();
-      if (latlngs.length > 0 && Array.isArray(latlngs[0])) {
-        latlngs = latlngs[0]; 
-      }
+      if (latlngs.length > 0 && Array.isArray(latlngs[0])) latlngs = latlngs[0]; 
       
-      const middleIndex = Math.floor(latlngs.length / 2);
-      const anchorPoint = latlngs[middleIndex] || layer.getBounds().getCenter(); 
-
+      const anchorPoint = latlngs[Math.floor(latlngs.length / 2)] || layer.getBounds().getCenter(); 
       const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
       const label = type === 'start' ? 'A' : 'B';
 
       const customIcon = L.divIcon({
         className: 'custom-map-pin-container',
-        html: `
-          <div class="pin-wrapper">
-            <div class="pin-head ${cssClass}"><span>${label}</span></div>
-            <div class="pin-pulse ${cssClass}"></div>
-            <div class="pin-leg"></div>
-          </div>
-        `,
-        iconSize: [30, 42],
-        iconAnchor: [15, 42] 
+        html: `<div class="pin-wrapper"><div class="pin-head ${cssClass}"><span>${label}</span></div><div class="pin-pulse ${cssClass}"></div><div class="pin-leg"></div></div>`,
+        iconSize: [30, 42], iconAnchor: [15, 42] 
       });
       
-      this.routeMarkers[type] = markRaw(L.marker(anchorPoint, { 
-        icon: customIcon,
-        zIndexOffset: 1000 
-      })).addTo(this.map);
+      this.routeMarkers[type] = markRaw(L.marker(anchorPoint, { icon: customIcon, zIndexOffset: 1000 })).addTo(this.map);
     },
 
     updateStatusIcons() {
@@ -258,9 +267,16 @@ export default {
     },
 
     highlight(layer) { 
-      if (this.lastSelected) this.graphLayer.resetStyle(this.lastSelected); 
+      const uid = layer.feature.properties._uid;
+      
+      if (this.lastSelectedUid && this.lastSelectedUid !== uid) {
+        const prevLayer = this.uidIndex[this.lastSelectedUid];
+        if (prevLayer) this.graphLayer.resetStyle(prevLayer); 
+      }
+      
       layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' }); 
-      this.lastSelected = layer; 
+      this.lastSelectedUid = uid; 
+      
       if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront(); 
     }
   }
