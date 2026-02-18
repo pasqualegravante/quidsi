@@ -50,13 +50,12 @@
         :endPoint="routing.endPoint"
         :cursor="mapCursor"
         :focusEdgeId="mapFocusId"
+        :sidebarOpen="ui.panelOpen" 
         @select-edge="handleEdgeSelect" 
         @graph-loaded="handleGraphLoaded"
         @focus-consumed="mapFocusId = null"
         @missed-click="handleMissedClick" 
-      />
-
-      <RoutingWidget 
+      /> <RoutingWidget 
         :startPoint="routing.startPoint" :endPoint="routing.endPoint" :activeMode="routing.activeMode"
         @toggle-mode="toggleRoutingMode" @calculate="executeDijkstra" 
       />
@@ -102,6 +101,7 @@ export default {
 
       selectedEdge: null,
       searchQuery: '', searchResults: [], searchTimeout: null,
+      currentSearchToken: 0,
       ui: { panelOpen: false, fullScreenOpen: false }, 
       currentAbortController: null,
       recalcTimeout: null
@@ -117,10 +117,13 @@ export default {
   },
   mounted() {
     window.addEventListener('keydown', this.handleKeydown);
+    window.addEventListener('offline', this.handleOffline);
+    window.addEventListener('online', this.handleOnline);
   },
   beforeUnmount() {
-    // FIX: Evita leak di eventi e chiamate asincrone fantasma se l'app viene distrutta
     window.removeEventListener('keydown', this.handleKeydown);
+    window.removeEventListener('offline', this.handleOffline);
+    window.removeEventListener('online', this.handleOnline);
     if (this.searchTimeout) clearTimeout(this.searchTimeout);
     if (this.recalcTimeout) clearTimeout(this.recalcTimeout);
     this.cancelCalculation();
@@ -139,13 +142,28 @@ export default {
     handleMissedClick() {
       this.uiStore.showToast('Nessuna strada trovata qui. Fai zoom o clicca esattamente su una via.', 'warning');
     },
+    handleOffline() { 
+      this.uiStore.showToast('Connessione di rete assente. L\'app è offline.', 'error'); 
+    },
+    handleOnline() { 
+      this.uiStore.showToast('Connessione ripristinata.', 'success'); 
+    },
 
     handleSearch() {
       clearTimeout(this.searchTimeout);
       if (this.searchQuery.length < 2) { this.searchResults = []; return; }
       
+      const myToken = ++this.currentSearchToken;
+
       this.searchTimeout = setTimeout(async () => {
-        this.searchResults = await SearchService.search(this.searchQuery);
+        try {
+          const results = await SearchService.search(this.searchQuery);
+          if (this.currentSearchToken === myToken) {
+            this.searchResults = results;
+          }
+        } catch (e) {
+          console.error("Errore ricerca:", e);
+        }
       }, 150);
     },
 
@@ -186,9 +204,6 @@ export default {
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       
-      // FIX 1: Race Condition. Se l'utente clicca come un forsennato, 
-      // distruggiamo sempre il calcolo precedente PRIMA di istanziare quello nuovo.
-      // Questo previene sovrapposizioni asincrone e memory leak.
       this.cancelCalculation();
 
       this.uiStore.setCalculating(true); 
@@ -209,15 +224,11 @@ export default {
           this.activeRoutePath = data.path; 
           this.uiStore.showToast('Percorso ottimale ricalcolato', 'success');
         } else {
-          // FIX 2: Ghost Route. Se la destinazione è isolata ma l'API risponde con successo=false,
-          // dobbiamo distruggere il percorso vecchio dalla mappa.
           this.activeRoutePath = []; 
           this.uiStore.showToast('Nessun percorso disponibile', 'warning');
         }
       } catch (error) {
         if (error.name !== 'AbortError') {
-          // FIX 2: Ghost Route. Anche se il server va in errore (es. nodo non trovato), 
-          // svuotiamo il percorso visivo. Non mentiamo mai all'utente mostrandogli una vecchia strada.
           this.activeRoutePath = []; 
           const errMap = { 'ABORTED': 'Calcolo interrotto', 'NOT_FOUND': 'Destinazione isolata', 'VALIDATION_ERROR': 'Punti non validi' };
           this.uiStore.showToast(errMap[error.message] || 'Errore server', 'error');
@@ -274,21 +285,15 @@ export default {
 
     handleGraphLoaded(list) { 
       this.roadList = list; 
-      SearchService.buildIndex(list); // Costruisce l'indice per la ricerca veloce
+      SearchService.buildIndex(list); 
       
       const savedClosures = StorageService.getClosures(); 
       if (savedClosures.length > 0) {
-        // FIX 3: Data Drift e Cache Poisoning
-        // Creiamo un Set con tutti gli ID attualmente validi nel nuovo grafo
         const validIds = new Set(list.map(r => String(r.id)));
-        
-        // Filtriamo le chiusure salvate nel localStorage: teniamo solo quelle che esistono ancora
         const validClosures = savedClosures.filter(id => validIds.has(String(id)));
 
-        // Aggiorniamo lo stato di Vue solo con i dati puliti
         this.activeClosureIds = [...validClosures]; 
 
-        // Se abbiamo scartato qualcosa, avvisiamo l'utente e puliamo subito il localStorage
         if (validClosures.length < savedClosures.length) {
           StorageService.saveClosures(this.activeClosureIds);
           this.uiStore.showToast('Il grafo è stato aggiornato: alcune chiusure obsolete sono state rimosse', 'warning');
@@ -314,7 +319,7 @@ export default {
 </script>
 
 <style>
-/* CSS Globale (Rimasto invariato) */
+/* CSS Globale */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
 
 :root {
@@ -340,7 +345,6 @@ html {
   position: relative;
 }
 
-/* Overlay Calcolo In Corso */
 .global-overlay {
   position: absolute; top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(255, 255, 255, 0.4);
@@ -368,7 +372,6 @@ html {
 
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Toast */
 .toast-container {
   position: absolute;
   bottom: 30px;
@@ -397,7 +400,6 @@ html {
 .toast-error { border-bottom: 3px solid #ef4444; }
 .toast-info { border-bottom: 3px solid #3b82f6; }
 
-/* Header */
 .dss-header {
   height: var(--header-height);
   background: var(--dss-navy);
@@ -506,7 +508,6 @@ html {
   position: relative;
 }
 
-/* Animazioni */
 .toast-anim-enter-active,
 .toast-anim-leave-active {
   transition: all 0.3s;

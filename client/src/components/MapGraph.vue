@@ -23,9 +23,9 @@ export default {
     startPoint: { type: Object, default: null },
     endPoint: { type: Object, default: null },
     cursor: { type: String, default: 'grab' },
-    focusEdgeId: { type: String, default: null }
+    focusEdgeId: { type: String, default: null },
+    sidebarOpen: { type: Boolean, default: false } // <-- AGGIUNTO: Riceve lo stato del pannello
   },
-  // FIX: Aggiunto 'missed-click' per gestire i click a vuoto
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
   data() {
     return {
@@ -52,11 +52,16 @@ export default {
         this.zoomToEdgeGroup(newId); 
         this.$emit('focus-consumed');
       } 
+    },
+    // <-- AGGIUNTO: Ricalcola la mappa quando la sidebar si muove
+    sidebarOpen() {
+      setTimeout(() => {
+        if (this.map) this.map.invalidateSize();
+      }, 300);
     }
   },
   mounted() { this.initMap(); this.loadGraph(); },
   
-  // FIX: Previene un massiccio memory leak distruggendo l'istanza di Leaflet
   beforeUnmount() {
     if (this.map) {
       this.map.off();
@@ -67,7 +72,6 @@ export default {
 
   methods: {
     initMap() {
-      // markRaw previene che Vue infetti l'oggetto map con getter/setter causando lag estremo
       this.map = markRaw(L.map(this.$refs.mapContainer, { 
         zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, maxBoundsViscosity: 1.0, minZoom: 12 
       }).setView([46.0665, 11.1216], 17)); 
@@ -79,12 +83,10 @@ export default {
       this.statusIconLayer = markRaw(L.layerGroup()).addTo(this.map); 
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
 
-      // FIX: Gestione "Buco Nero" UX - Intercetta i click che mancano le strade
       this.map.on('click', () => {
         if (this.cursor === 'crosshair') {
           this.$emit('missed-click');
         } else {
-          // Deseleziona eventuali strade attive (chiude il pannello laterale se si clicca nel vuoto)
           this.$emit('focus-consumed');
         }
       });
@@ -172,7 +174,6 @@ export default {
       const layer = this.uidIndex[point.uid]; 
       if (!layer) return;
       
-      // FIX: Gestione di sicurezza per le MultiLineString.
       let latlngs = layer.getLatLngs();
       if (latlngs.length > 0 && Array.isArray(latlngs[0])) {
         latlngs = latlngs[0]; 
