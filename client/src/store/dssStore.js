@@ -3,7 +3,6 @@ import { ApiService } from '../services/api';
 import { StorageService } from '../services/storage';
 import { uiStore } from './uiStore';
 
-// Mappatura errori per messaggi umani
 const ERROR_MESSAGES = {
   'NOT_FOUND': 'Percorso non trovato: la destinazione potrebbe essere isolata da chiusure.',
   'VALIDATION_ERROR_SAME_NODE': 'Partenza e arrivo coincidono. Seleziona tratti diversi.',
@@ -16,22 +15,22 @@ const ERROR_MESSAGES = {
 
 export const useDssStore = defineStore('dss', {
   state: () => ({
-    roadList: [], // Popolata da MapGraph.vue all'avvio
-    activeClosureIds: [], // Array di String (id_arco nativi)
-    activeRoutePath: [], // Array di String (id_arco nativi)
+    roadList: [], 
+    activeClosureIds: [], 
+    activeRoutePath: [], 
     routing: { startPoint: null, endPoint: null, activeMode: null },
     routeStats: { distance: 0, duration: 0 },
-    vehicleProfile: 'light', // 'light', 'heavy', 'emergency'
+    vehicleProfile: 'light', 
     mapCursor: 'grab',
     mapFocusId: null,
     currentAbortController: null,
     isSidebarOpen: false,
     selectedEdge: null,
-    sidebarTimeout: null
+    sidebarTimeout: null,
+    printMode: false // <-- NUOVO: Stato Modalità Stampa
   }),
 
   getters: {
-    // Gestisce la visualizzazione granulare: Tratto singolo vs Via Intera
     activeClosuresObjects(state) {
       const streetGroups = {};
 
@@ -56,24 +55,36 @@ export const useDssStore = defineStore('dss', {
       const result = [];
       for (const data of Object.values(streetGroups)) {
         if (data.closedSegments.length === data.totalSegments) {
-          result.push({ 
-            id: data.baseId, 
-            name: data.streetName,
-            originalName: data.streetName, 
-            isEntireStreet: true 
-          });
+          result.push({ id: data.baseId, name: data.streetName, originalName: data.streetName, isEntireStreet: true });
         } else {
           data.closedSegments.forEach(segId => {
-            result.push({ 
-              id: segId, 
-              name: `${data.streetName} (Tratto)`,
-              originalName: data.streetName, 
-              isEntireStreet: false
-            });
+            result.push({ id: segId, name: `${data.streetName} (Tratto)`, originalName: data.streetName, isEntireStreet: false });
           });
         }
       }
       return result;
+    },
+
+    // <-- NUOVO: Generatore Turn-by-Turn
+    textualItinerary(state) {
+      if (!state.activeRoutePath || state.activeRoutePath.length === 0) return [];
+      const steps = [];
+      let currentStreet = null;
+
+      state.activeRoutePath.forEach(id => {
+        const road = state.roadList.find(r => String(r.id) === String(id));
+        if (road && road.street && road.street !== 'Senza nome') {
+          if (road.street !== currentStreet) {
+            currentStreet = road.street;
+            steps.push(currentStreet);
+          }
+        }
+      });
+
+      return steps.map((street, index) => {
+        if (index === 0) return `Procedi su ${street}`;
+        return `Svolta su ${street}`;
+      });
     }
   },
 
@@ -110,9 +121,7 @@ export const useDssStore = defineStore('dss', {
       let idsToProcess = [targetId];
 
       if (entireStreet && edge.street) {
-        idsToProcess = this.roadList
-          .filter(r => r.street === edge.street)
-          .map(r => String(r.id));
+        idsToProcess = this.roadList.filter(r => r.street === edge.street).map(r => String(r.id));
       }
 
       const isCurrentlyClosed = idsToProcess.some(id => this.activeClosureIds.includes(id));
@@ -127,16 +136,32 @@ export const useDssStore = defineStore('dss', {
       this.triggerAutoRecalc();
     },
 
-    softReset() {
-      this.closeSidebar(); 
+    // <-- NUOVO: Inversione Rapida
+    swapRoutePoints() {
+      if (!this.routing.startPoint || !this.routing.endPoint) return;
+      const temp = this.routing.startPoint;
+      this.routing.startPoint = this.routing.endPoint;
+      this.routing.endPoint = temp;
+      this.triggerAutoRecalc();
+    },
+
+    // <-- NUOVO: Sdoppiamento Reset (Percorso vs Cantieri)
+    clearRoute() {
       if (this.currentAbortController) this.currentAbortController.abort();
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
       this.activeRoutePath = [];
-      this.activeClosureIds = [];
       this.routeStats = { distance: 0, duration: 0 };
       this.mapCursor = 'grab';
-      StorageService.clearClosures(); 
-      uiStore.showToast('Sistema ripristinato', 'info');
+      this.closeSidebar();
+      uiStore.showToast('Percorso azzerato', 'info');
+    },
+
+    clearClosures() {
+      this.activeClosureIds = [];
+      StorageService.clearClosures();
+      this.triggerAutoRecalc();
+      this.closeSidebar();
+      uiStore.showToast('Tutte le chiusure rimosse', 'info');
     },
 
     triggerAutoRecalc() {
@@ -178,7 +203,6 @@ export const useDssStore = defineStore('dss', {
       } catch (error) {
         if (error.name === 'AbortError') return;
 
-        // --- MOCK MODE (Simulazione Offline) ---
         if (error instanceof TypeError || error.message === 'NETWORK_ERROR') {
           this.generateMockRoute();
         } else {
@@ -200,7 +224,6 @@ export const useDssStore = defineStore('dss', {
       const minIdx = Math.min(startIdx, endIdx);
       const maxIdx = Math.max(startIdx, endIdx);
       
-      // Simula un percorso prendendo una fetta di strade
       let mockPath = this.roadList
         .slice(minIdx, Math.min(minIdx + 25, maxIdx + 1))
         .map(r => String(r.id))
@@ -212,7 +235,6 @@ export const useDssStore = defineStore('dss', {
 
       this.activeRoutePath = mockPath;
 
-      // Statistiche simulate basate sul profilo
       const baseDist = mockPath.length * 0.15;
       const multipliers = { light: 1.0, heavy: 1.6, emergency: 0.8 };
       const currentMult = multipliers[this.vehicleProfile] || 1.0;

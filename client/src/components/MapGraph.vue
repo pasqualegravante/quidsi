@@ -1,26 +1,17 @@
 <template>
   <div class="map-wrapper">
     <div id="map" ref="mapContainer"></div>
-
     <div v-if="loading" class="map-loader">Sincronizzazione Grafo...</div>
   </div>
 </template>
 
 <script>
-/**
- * @file MapGraph.vue
- * @description Modulo cartografico DSS Trento.
- * Gestisce l'importazione del grafo basata sui nuovi identificatori nativi
- * (id_arco e codice_via) per garantire allineamento assoluto 1:1 con il backend Python.
- */
-
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
 import { markRaw } from 'vue';
 import { StorageService } from '../services/storage';
 
-// Costanti di proiezione e vincoli geografici
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
 const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
@@ -34,25 +25,18 @@ export default {
     endPoint: { type: Object, default: null },
     cursor: { type: String, default: 'grab' },
     focusEdgeId: { type: String, default: null },
-    sidebarOpen: { type: Boolean, default: false }
+    sidebarOpen: { type: Boolean, default: false },
+    printMode: { type: Boolean, default: false } // <-- NUOVA PROP
   },
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
 
   created() {
-    this.uidIndex = {};   // Index: Leaflet UID -> Layer
-    this.groupIndex = {}; // Index: Base ID (codice_via) -> Array di Layer
+    this.uidIndex = {};   
+    this.groupIndex = {}; 
   },
 
   data() {
-    return {
-      map: null,
-      graphLayer: null,
-      loading: false,
-      routeMarkers: { start: null, end: null },
-      statusIconLayer: null,
-      mapStateTimeout: null,
-      lastSelectedUids: []
-    };
+    return { map: null, graphLayer: null, loading: false, routeMarkers: { start: null, end: null }, statusIconLayer: null, mapStateTimeout: null, lastSelectedUids: [] };
   },
 
   watch: {
@@ -61,15 +45,13 @@ export default {
     startPoint(newVal) { this.syncMarker('start', newVal); },
     endPoint(newVal) { this.syncMarker('end', newVal); },
     cursor(newVal) { if (this.$refs.mapContainer) this.$refs.mapContainer.style.cursor = newVal; },
-
     focusEdgeId(newId) { if (newId) { this.zoomToEdgeGroup(newId); this.$emit('focus-consumed'); } },
-
     sidebarOpen(newVal) {
       setTimeout(() => { if (this.map) this.map.invalidateSize(); }, 300);
-      if (!newVal && this.lastSelectedUids.length > 0) {
-        this.clearHighlight();
-      }
-    }
+      if (!newVal && this.lastSelectedUids.length > 0) this.clearHighlight();
+    },
+    // <-- NUOVO: Aggiorna stile archi all'attivazione Modalità Stampa
+    printMode(newVal) { this.syncPrintMode(newVal); }
   },
 
   mounted() { this.initMap(); this.loadGraph(); },
@@ -105,11 +87,7 @@ export default {
         if (this.mapStateTimeout) clearTimeout(this.mapStateTimeout);
         this.mapStateTimeout = setTimeout(() => {
           const center = this.map.getCenter();
-          StorageService.saveMapState({
-            lat: center.lat,
-            lng: center.lng,
-            zoom: this.map.getZoom()
-          });
+          StorageService.saveMapState({ lat: center.lat, lng: center.lng, zoom: this.map.getZoom() });
         }, 2000);
       };
       this.map.on('moveend', saveState);
@@ -127,25 +105,22 @@ export default {
             const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]);
             return [t[1], t[0]];
           },
+          // MODIFICATO per integrare l'opacità Modalità Stampa iniziale
           style: (feature) => {
             if (feature.properties.isClosed) return { color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 };
             if (feature.properties.isRoutePath) return { color: '#10b981', weight: 7, opacity: 1 };
-            return { color: feature.properties.sensouni === 1 ? '#3b82f6' : '#94a3b8', weight: 3, opacity: 0.6 };
+            const baseOpacity = this.printMode ? 0.1 : 0.6;
+            return { color: feature.properties.sensouni === 1 ? '#3b82f6' : '#94a3b8', weight: 3, opacity: baseOpacity };
           },
           onEachFeature: (feature, layer) => {
-            // ---> NUOVA LOGICA: Lettura diretta dei campi nativi <---
-            // Fallback (||) aggiunto per sicurezza qualora il file non sia ancora aggiornato
             const uniqueId = String(feature.properties.id_arco || feature.properties.codice);
             const baseCodice = String(feature.properties.codice_via || feature.properties.codice);
 
             feature.properties.uniqueDbId = uniqueId;
-
             const uid = String(L.stamp(layer));
             feature.properties._uid = uid;
 
             this.uidIndex[uid] = layer;
-
-            // Raggruppamento visivo e di ricerca tramite codice base (es. "1040")
             if (!this.groupIndex[baseCodice]) this.groupIndex[baseCodice] = [];
             this.groupIndex[baseCodice].push(layer);
 
@@ -162,11 +137,7 @@ export default {
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               if (this.cursor !== 'crosshair') this.highlight(layer);
-
-              this.$emit('select-edge', {
-                uid: uid, id: uniqueId, street: feature.properties.desvia,
-                oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed
-              });
+              this.$emit('select-edge', { uid: uid, id: uniqueId, street: feature.properties.desvia, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
             });
           }
         });
@@ -175,13 +146,22 @@ export default {
         this.graphLayer.addTo(this.map);
 
         this.$emit('graph-loaded', data.features.map(f => ({
-          id: String(f.properties.uniqueDbId),
-          uid: String(f.properties._uid),
-          street: f.properties.desvia || 'Senza nome'
+          id: String(f.properties.uniqueDbId), uid: String(f.properties._uid), street: f.properties.desvia || 'Senza nome'
         })));
 
         if (this.closedEdges.length) this.syncClosures(this.closedEdges);
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
+    },
+
+    // <-- NUOVO METODO: Gestisce in tempo reale lo stile quando si spunta "Stampa"
+    syncPrintMode(isPrint) {
+      if (!this.graphLayer) return;
+      Object.values(this.uidIndex).forEach(layer => {
+        const props = layer.feature.properties;
+        if (!props.isRoutePath && !props.isClosed && !this.lastSelectedUids.includes(props._uid)) {
+          this.graphLayer.resetStyle(layer);
+        }
+      });
     },
 
     syncClosures(closedIds) {
@@ -230,40 +210,23 @@ export default {
 
     zoomToEdgeGroup(dbId) {
       if (!this.graphLayer) return;
-
       let layers = [];
       const targetId = String(dbId);
 
-      // CASO 1: È stato cliccato un TRATTO SINGOLO (es. "1040_1" ha l'underscore)
       if (targetId.includes('_')) {
-        const specificLayer = Object.values(this.uidIndex).find(l => 
-          String(l.feature.properties.uniqueDbId) === targetId
-        );
+        const specificLayer = Object.values(this.uidIndex).find(l => String(l.feature.properties.uniqueDbId) === targetId);
         if (specificLayer) layers = [specificLayer];
-      } 
-      // CASO 2: È stata cliccata una VIA INTERA (es. "1040")
-      else if (this.groupIndex[targetId]) {
+      } else if (this.groupIndex[targetId]) {
         layers = this.groupIndex[targetId];
       }
 
-      // Esegui lo zoom
       if (layers.length > 0) {
         requestAnimationFrame(() => {
           const group = L.featureGroup(layers);
-          this.map.fitBounds(group.getBounds(), {
-            paddingBottomRight: [360, 0],
-            paddingTopLeft: [40, 40],
-            maxZoom: 18
-          });
-
-          // Evidenzia di giallo la zona inquadrata
+          this.map.fitBounds(group.getBounds(), { paddingBottomRight: [360, 0], paddingTopLeft: [40, 40], maxZoom: 18 });
           this.highlight(layers);
-
           const props = layers[0].feature.properties;
-          this.$emit('select-edge', {
-            uid: props._uid, id: props.uniqueDbId, street: props.desvia,
-            oneWay: props.sensouni, isClosed: !!props.isClosed
-          });
+          this.$emit('select-edge', { uid: props._uid, id: props.uniqueDbId, street: props.desvia, oneWay: props.sensouni, isClosed: !!props.isClosed });
         });
       }
     },
@@ -271,14 +234,12 @@ export default {
     highlight(target) {
       const layers = Array.isArray(target) ? target : [target];
       const newUids = layers.map(l => String(l.feature.properties._uid));
-
       this.clearHighlight(newUids);
 
       layers.forEach(layer => {
         layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
         if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront();
       });
-
       this.lastSelectedUids = newUids;
     },
 
@@ -300,11 +261,7 @@ export default {
       const layer = this.uidIndex[point.uid] || this.groupIndex[point.id]?.[0];
       if (!layer) return;
 
-      // ---> LOGICA DI POSIZIONAMENTO PULITA E A PROVA DI CRASH <---
-      // getCenter() estrapola matematicamente il centro esatto calcolando il bounding box,
-      // evitando di dover navigare manualmente negli array di coordinate.
       const anchorPoint = layer.getBounds().getCenter();
-      
       const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
       const label = type === 'start' ? 'A' : 'B';
       const customIcon = L.divIcon({
@@ -332,123 +289,22 @@ export default {
 </script>
 
 <style>
-/* Leaflet Global Icons (Invariati) */
-.status-icon-closed {
-  background: #ef4444;
-  border: 2px solid white;
-  border-radius: 50%;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.status-icon-closed::after {
-  content: '';
-  display: block;
-  width: 60%;
-  height: 2px;
-  background: white;
-  border-radius: 1px;
-}
-
-.custom-map-pin-container {
-  background: none !important;
-  border: none !important;
-}
-
-.pin-wrapper {
-  position: relative;
-  width: 30px;
-  height: 42px;
-}
-
-.pin-head {
-  width: 30px;
-  height: 30px;
-  border-radius: 50% 50% 50% 0;
-  transform: rotate(-45deg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  z-index: 5;
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
-}
-
-.pin-head span {
-  transform: rotate(45deg);
-  color: white;
-  font-weight: 800;
-  font-size: 14px;
-}
-
-.marker-start {
-  background: #10b981;
-  border: 2px solid #ffffff;
-}
-
-.marker-end {
-  background: #8b5cf6;
-  border: 2px solid #ffffff;
-}
-
-.pin-leg {
-  width: 2px;
-  height: 4px;
-  background: white;
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 4;
-}
-
-.pin-pulse {
-  position: absolute;
-  bottom: -5px;
-  left: 50%;
-  width: 20px;
-  height: 10px;
-  margin-left: -10px;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 50%;
-  z-index: 1;
-  animation: pin-shadow-pulse 2s infinite;
-}
-
-@keyframes pin-shadow-pulse {
-  0% { transform: scale(0.5); opacity: 0.5; }
-  100% { transform: scale(1.5); opacity: 0; }
-}
+/* CSS originale di MapGraph.vue intatto */
+.status-icon-closed { background: #ef4444; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center; }
+.status-icon-closed::after { content: ''; display: block; width: 60%; height: 2px; background: white; border-radius: 1px; }
+.custom-map-pin-container { background: none !important; border: none !important; }
+.pin-wrapper { position: relative; width: 30px; height: 42px; }
+.pin-head { width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: flex; align-items: center; justify-content: center; position: relative; z-index: 5; box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3); }
+.pin-head span { transform: rotate(45deg); color: white; font-weight: 800; font-size: 14px; }
+.marker-start { background: #10b981; border: 2px solid #ffffff; }
+.marker-end { background: #8b5cf6; border: 2px solid #ffffff; }
+.pin-leg { width: 2px; height: 4px; background: white; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 4; }
+.pin-pulse { position: absolute; bottom: -5px; left: 50%; width: 20px; height: 10px; margin-left: -10px; background: rgba(0, 0, 0, 0.2); border-radius: 50%; z-index: 1; animation: pin-shadow-pulse 2s infinite; }
+@keyframes pin-shadow-pulse { 0% { transform: scale(0.5); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
 </style>
 
 <style scoped>
-.map-wrapper,
-#map {
-  width: 100%;
-  height: 100%;
-  background: #e2e8f0;
-}
-
-.map-loader {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: white;
-  padding: 15px 25px;
-  border-radius: 8px;
-  z-index: 1000;
-  font-weight: 800;
-  color: #1e293b;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-}
-
-:deep(.leaflet-control-zoom) {
-  margin-top: 15px !important;
-  margin-left: 15px !important;
-  border: none !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
-}
+.map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; }
+.map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 1000; font-weight: 800; color: #1e293b; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+:deep(.leaflet-control-zoom) { margin-top: 15px !important; margin-left: 15px !important; border: none !important; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important; }
 </style>

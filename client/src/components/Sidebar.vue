@@ -24,12 +24,12 @@
         <h3 class="section-title">ALTERAZIONE SCENARIO (CANTIERI)</h3>
         
         <div class="simulation-actions-stack">
-          <button :class="['btn-massive', selectedEdge.isClosed ? 'btn-reopen' : 'btn-close']" @click="$emit('simulate-entire')">
-            {{ selectedEdge.isClosed ? 'RIAPRI INTERA VIA' : 'CHIUDI INTERA VIA (BLOCCO TOTALE)' }}
+          <button :class="['btn-massive', isCurrentlyClosed ? 'btn-reopen' : 'btn-close']" @click="$emit('simulate-entire')">
+            {{ isCurrentlyClosed ? 'RIAPRI INTERA VIA' : 'CHIUDI INTERA VIA (BLOCCO TOTALE)' }}
           </button>
           
-          <button :class="['btn-outline', selectedEdge.isClosed ? 'text-green' : 'text-red']" @click="$emit('simulate-portion')">
-            {{ selectedEdge.isClosed ? 'Riapri solo questo frammento' : 'Chiudi solo questo frammento esatto' }}
+          <button :class="['btn-outline', isCurrentlyClosed ? 'text-green' : 'text-red']" @click="$emit('simulate-portion')">
+            {{ isCurrentlyClosed ? 'Riapri solo questo frammento' : 'Chiudi solo questo frammento esatto' }}
           </button>
         </div>
 
@@ -43,16 +43,29 @@
 /**
  * @file Sidebar.vue
  * @description Modulo UI di Ispezione Topografica.
- * Gestisce la visualizzazione delle feature map e la simulazione visiva
- * delle interruzioni viarie (che vengono poi passate come impedenze infinite a Python).
  */
+import { computed } from 'vue';
+import { useDssStore } from '../store/dssStore';
+
 export default {
   name: 'Sidebar',
   props: { 
     isOpen: { type: Boolean, default: false }, 
     selectedEdge: { type: Object, default: null } 
   },
-  emits: ['close', 'simulate-portion', 'simulate-entire']
+  emits: ['close', 'simulate-portion', 'simulate-entire'],
+  setup(props) {
+    const dssStore = useDssStore();
+    
+    // NUOVO: Computed property reattiva che controlla IN DIRETTA lo store centrale.
+    // In questo modo i bottoni si aggiornano istantaneamente senza dover cliccare fuori.
+    const isCurrentlyClosed = computed(() => {
+      if (!props.selectedEdge || !props.selectedEdge.id) return false;
+      return dssStore.activeClosureIds.includes(String(props.selectedEdge.id));
+    });
+
+    return { isCurrentlyClosed };
+  }
 }
 </script>
 
