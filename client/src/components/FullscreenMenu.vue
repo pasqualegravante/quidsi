@@ -43,7 +43,7 @@
           </div>
           <div class="fs-card">
             <h3>Hub Esportazione</h3>
-            <p>Genera report PDF analitici o esporta la rete in formato GIS (GeoJSON).</p>
+            <p>Genera il report PDF analitico per la documentazione ufficiale.</p>
             <button class="fs-btn btn-highlight-purple" @click="currentView = 'export'">📥 ESPORTA DATI</button>
           </div>
           <div class="fs-card">
@@ -65,26 +65,15 @@
           <p>Genera documenti ufficiali basati sullo scenario attualmente visualizzato in mappa.</p>
         </header>
 
-        <div class="export-grid">
+        <div class="export-single-container">
           <div class="export-item" :class="{ 'exporting': exportStatus === 'pdf' }">
             <div class="export-icon">📄</div>
             <div class="export-details">
               <h4>Rapporto di Impatto Viabilistico</h4>
-              <p>Documento PDF con statistiche, strade chiuse e variazioni dei tempi medi.</p>
+              <p>Documento PDF con statistiche, strade chiuse e variazioni dei tempi medi. Ideale come allegato all'ordinanza.</p>
             </div>
             <button class="btn-gen" @click="startExport('pdf')" :disabled="exportStatus">
-              {{ exportStatus === 'pdf' ? 'Generazione...' : 'Genera PDF' }}
-            </button>
-          </div>
-
-          <div class="export-item" :class="{ 'exporting': exportStatus === 'gis' }">
-            <div class="export-icon">🗺️</div>
-            <div class="export-details">
-              <h4>Layer Cartografico (GeoJSON)</h4>
-              <p>Esporta la topologia degli archi interrotti per l'integrazione in QGIS/ArcGIS.</p>
-            </div>
-            <button class="btn-gen" @click="startExport('gis')" :disabled="exportStatus">
-              {{ exportStatus === 'gis' ? 'Esportazione...' : 'Scarica GeoJSON' }}
+              {{ exportStatus === 'pdf' ? 'Generazione in corso...' : 'Genera PDF' }}
             </button>
           </div>
         </div>
@@ -191,12 +180,17 @@
 /**
  * @file FullscreenMenu.vue
  * @description Modulo Gestionale Avanzato per Pubblica Amministrazione.
- * Integra: Autenticazione SPID, Hub Esportazione, Tuning Algoritmi e Archivio Scenari.
  */
+import { useDssStore } from '../store/dssStore';
+
 export default {
   name: 'FullscreenMenu',
   props: { isOpen: { type: Boolean, required: true } },
   emits: ['close', 'load-scenario', 'save-request'],
+  setup() {
+    const dssStore = useDssStore();
+    return { dssStore };
+  },
   data() {
     return {
       isAuthenticated: false,
@@ -206,7 +200,7 @@ export default {
       providers: ['Poste ID', 'InfoCert ID', 'Aruba ID', 'Sielte ID', 'Namirial ID', 'Lepida ID'],
       
       currentView: 'dashboard',
-      exportStatus: null, // 'pdf', 'gis' o null
+      exportStatus: null,
       progress: 0,
       
       weights: { residentialPenalty: 1.5, oneWayPenalty: 1.2, congestionLevel: 1.0, emergencyOverride: false },
@@ -245,7 +239,7 @@ export default {
       this.isAuthenticated = false; this.currentView = 'dashboard';
     },
 
-    /** HUB ESPORTAZIONE */
+    /** LOGICA ESPORTAZIONE CON TRUCCO "ANTEPRIMA" */
     startExport(type) {
       this.exportStatus = type;
       this.progress = 0;
@@ -254,15 +248,28 @@ export default {
         if (this.progress >= 100) {
           clearInterval(interval);
           setTimeout(() => {
-            alert(`${type.toUpperCase()} generato con successo e inviato al browser per il download.`);
+            if (type === 'pdf') {
+              // 1. Forza la modalità anteprima nello store (App.vue stritola la mappa)
+              this.dssStore.printMode = true; 
+              
+              // 2. Chiudi il menu fullscreen
+              this.$emit('close'); 
+              
+              // 3. Aspetta 1 SECONDO PIENO che MapGraph finisca il fitBounds e carichi i tiles
+              setTimeout(() => { 
+                window.print(); 
+                
+                // 4. Ripristina la vista normale dopo che la finestra di stampa si chiude
+                setTimeout(() => { this.dssStore.printMode = false; }, 500);
+              }, 1000); 
+            }
             this.exportStatus = null;
             this.progress = 0;
-          }, 500);
+          }, 400);
         }
       }, 150);
     },
 
-    /** GESTIONE PESI */
     loadWeights() {
       const saved = localStorage.getItem('quidsi_algorithm_weights');
       if (saved) { try { this.weights = JSON.parse(saved); } catch (e) { console.error(e); } }
@@ -275,7 +282,6 @@ export default {
       if (val == 1.0) return "Regolare"; if (val == 1.5) return "Moderato"; return "Critico";
     },
 
-    /** GESTIONE SCENARI */
     fetchScenarios() {
       const saved = localStorage.getItem('quidsi_local_scenarios');
       if (saved) this.scenarios = JSON.parse(saved);
@@ -323,10 +329,10 @@ export default {
 .btn-highlight-blue { background: #3b82f6; border: 2px solid #60a5fa; }
 .btn-highlight-purple { background: #8b5cf6; border: 2px solid #a78bfa; }
 
-/* HUB ESPORTAZIONE */
+/* HUB ESPORTAZIONE (SINGOLO ELEMENTO) */
 .export-box { max-width: 900px; margin: 0 auto; text-align: left; }
-.export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 30px; }
-.export-item { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 30px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; text-align: center; transition: 0.3s; }
+.export-single-container { display: flex; justify-content: center; margin-top: 30px; }
+.export-item { max-width: 500px; width: 100%; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 30px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; text-align: center; transition: 0.3s; }
 .export-icon { font-size: 3rem; margin-bottom: 20px; }
 .export-details h4 { color: #fff; margin-bottom: 10px; }
 .export-details p { font-size: 0.85rem; color: #94a3b8; line-height: 1.5; margin-bottom: 25px; }

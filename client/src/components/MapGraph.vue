@@ -26,7 +26,7 @@ export default {
     cursor: { type: String, default: 'grab' },
     focusEdgeId: { type: String, default: null },
     sidebarOpen: { type: Boolean, default: false },
-    printMode: { type: Boolean, default: false } // <-- NUOVA PROP
+    printMode: { type: Boolean, default: false }
   },
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
 
@@ -46,12 +46,28 @@ export default {
     endPoint(newVal) { this.syncMarker('end', newVal); },
     cursor(newVal) { if (this.$refs.mapContainer) this.$refs.mapContainer.style.cursor = newVal; },
     focusEdgeId(newId) { if (newId) { this.zoomToEdgeGroup(newId); this.$emit('focus-consumed'); } },
+    
     sidebarOpen(newVal) {
       setTimeout(() => { if (this.map) this.map.invalidateSize(); }, 300);
       if (!newVal && this.lastSelectedUids.length > 0) this.clearHighlight();
     },
-    // <-- NUOVO: Aggiorna stile archi all'attivazione Modalità Stampa
-    printMode(newVal) { this.syncPrintMode(newVal); }
+
+    // --- FIX BUG STAMPA ---
+    // Quando entra in modalità stampa, forza il ricalcolo geometrico
+    printMode(newVal) { 
+      this.syncPrintMode(newVal); 
+      if (newVal && this.map) {
+        // Aspetta 300ms che il CSS in App.vue ridimensioni il div a 12cm
+        setTimeout(() => {
+          this.map.invalidateSize(); // Cruciale: dice a Leaflet che il container è cambiato
+          
+          // Aspetta un altro tick per essere sicuri che invalidateSize abbia finito
+          setTimeout(() => {
+            this.fitToScenario(); // Ora calcola lo zoom corretto sul nuovo rettangolo
+          }, 50);
+        }, 300);
+      }
+    }
   },
 
   mounted() { this.initMap(); this.loadGraph(); },
@@ -105,7 +121,6 @@ export default {
             const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]);
             return [t[1], t[0]];
           },
-          // MODIFICATO per integrare l'opacità Modalità Stampa iniziale
           style: (feature) => {
             if (feature.properties.isClosed) return { color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 };
             if (feature.properties.isRoutePath) return { color: '#10b981', weight: 7, opacity: 1 };
@@ -129,11 +144,9 @@ export default {
                 layer.setStyle({ weight: 6, color: '#60a5fa', opacity: 1 });
               }
             });
-
             layer.on('mouseout', () => {
               if (!this.lastSelectedUids.includes(uid)) this.graphLayer.resetStyle(layer);
             });
-
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               if (this.cursor !== 'crosshair') this.highlight(layer);
@@ -153,11 +166,45 @@ export default {
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
 
-    // <-- NUOVO METODO: Gestisce in tempo reale lo stile quando si spunta "Stampa"
+    // --- LOGICA ZOOM SMART ---
+    fitToScenario() {
+      if (!this.graphLayer) return;
+      const bounds = L.latLngBounds([]);
+      let hasPoints = false;
+
+      // Helper per aggiungere layer ai bounds
+      const addToBounds = (idList) => {
+        idList.forEach(dbId => {
+          const id = String(dbId);
+          Object.values(this.uidIndex).forEach(layer => {
+            if (String(layer.feature.properties.uniqueDbId) === id && layer.getBounds) {
+              bounds.extend(layer.getBounds());
+              hasPoints = true;
+            }
+          });
+        });
+      };
+
+      addToBounds(this.closedEdges);
+      addToBounds(this.routePath);
+
+      if (this.routeMarkers.start) { bounds.extend(this.routeMarkers.start.getLatLng()); hasPoints = true; }
+      if (this.routeMarkers.end) { bounds.extend(this.routeMarkers.end.getLatLng()); hasPoints = true; }
+
+      if (hasPoints) {
+        // Usa padding per non avere i punti attaccati ai bordi del foglio
+        this.map.fitBounds(bounds, { padding: [30, 30], animate: false, maxZoom: 17 });
+      } else {
+        // Fallback: Centro di Trento se non c'è nulla di selezionato
+        this.map.setView([46.0665, 11.1216], 15);
+      }
+    },
+
     syncPrintMode(isPrint) {
       if (!this.graphLayer) return;
       Object.values(this.uidIndex).forEach(layer => {
         const props = layer.feature.properties;
+        // In stampa, rendi quasi invisibili gli archi non rilevanti
         if (!props.isRoutePath && !props.isClosed && !this.lastSelectedUids.includes(props._uid)) {
           this.graphLayer.resetStyle(layer);
         }
@@ -167,15 +214,12 @@ export default {
     syncClosures(closedIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(closedIds.map(String));
-
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.uniqueDbId);
         const uid = String(layer.feature.properties._uid);
         const shouldBeClosed = setIds.has(id);
-
         if (layer.feature.properties.isClosed !== shouldBeClosed) {
           layer.feature.properties.isClosed = shouldBeClosed;
-
           if (!this.lastSelectedUids.includes(uid)) {
             this.graphLayer.resetStyle(layer);
           } else {
@@ -189,15 +233,12 @@ export default {
     syncRoutePath(pathIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(pathIds.map(String));
-
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.uniqueDbId);
         const uid = String(layer.feature.properties._uid);
         const shouldBeRoute = setIds.has(id);
-
         if (layer.feature.properties.isRoutePath !== shouldBeRoute) {
           layer.feature.properties.isRoutePath = shouldBeRoute;
-
           if (!this.lastSelectedUids.includes(uid)) {
             this.graphLayer.resetStyle(layer);
             if (shouldBeRoute) layer.bringToFront();
@@ -212,14 +253,12 @@ export default {
       if (!this.graphLayer) return;
       let layers = [];
       const targetId = String(dbId);
-
       if (targetId.includes('_')) {
         const specificLayer = Object.values(this.uidIndex).find(l => String(l.feature.properties.uniqueDbId) === targetId);
         if (specificLayer) layers = [specificLayer];
       } else if (this.groupIndex[targetId]) {
         layers = this.groupIndex[targetId];
       }
-
       if (layers.length > 0) {
         requestAnimationFrame(() => {
           const group = L.featureGroup(layers);
@@ -235,7 +274,6 @@ export default {
       const layers = Array.isArray(target) ? target : [target];
       const newUids = layers.map(l => String(l.feature.properties._uid));
       this.clearHighlight(newUids);
-
       layers.forEach(layer => {
         layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
         if (!L.Browser.ie && !L.Browser.opera && !L.Browser.edge) layer.bringToFront();
@@ -257,10 +295,8 @@ export default {
     syncMarker(type, point) {
       if (this.routeMarkers[type]) { this.map.removeLayer(this.routeMarkers[type]); this.routeMarkers[type] = null; }
       if (!point) return;
-      
       const layer = this.uidIndex[point.uid] || this.groupIndex[point.id]?.[0];
       if (!layer) return;
-
       const anchorPoint = layer.getBounds().getCenter();
       const cssClass = type === 'start' ? 'marker-start' : 'marker-end';
       const label = type === 'start' ? 'A' : 'B';
@@ -269,7 +305,6 @@ export default {
         html: `<div class="pin-wrapper"><div class="pin-head ${cssClass}"><span>${label}</span></div><div class="pin-pulse ${cssClass}"></div><div class="pin-leg"></div></div>`,
         iconSize: [30, 42], iconAnchor: [15, 42]
       });
-      
       this.routeMarkers[type] = markRaw(L.marker(anchorPoint, { icon: customIcon, zIndexOffset: 1000 })).addTo(this.map);
     },
 
@@ -289,7 +324,7 @@ export default {
 </script>
 
 <style>
-/* CSS originale di MapGraph.vue intatto */
+/* CSS originale intatto */
 .status-icon-closed { background: #ef4444; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center; }
 .status-icon-closed::after { content: ''; display: block; width: 60%; height: 2px; background: white; border-radius: 1px; }
 .custom-map-pin-container { background: none !important; border: none !important; }

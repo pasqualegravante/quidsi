@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="dss-main-container">
+  <div id="app" class="dss-main-container" :class="{ 'preview-mode': dssStore.printMode }">
     <div v-if="uiStore.isCalculating" class="global-overlay">
       <div class="spinner-container">
         <div class="spinner"></div>
@@ -45,6 +45,24 @@
       </div>
     </header>
 
+    <div class="print-header-section">
+      <div class="print-logos">
+        <h2>🇮🇹 COMUNE DI TRENTO</h2>
+        <p>Servizio Gestione Strade e Parchi - Ufficio Viabilità</p>
+      </div>
+      <div class="print-title">
+        <h1>RAPPORTO DI IMPATTO VIABILISTICO</h1>
+        <p>Documento Tecnico di Supporto alle Decisioni (DSS)</p>
+      </div>
+      <div class="print-metadata-wrapper">
+        <div class="print-metadata">
+          <div class="meta-box"><strong>Data Simulazione:</strong> {{ new Date().toLocaleDateString('it-IT') }}</div>
+          <div class="meta-box"><strong>Profilo Veicolare:</strong> {{ dssStore.vehicleProfile.toUpperCase() }}</div>
+          <div class="meta-box"><strong>Archi Chiusi:</strong> {{ dssStore.activeClosureIds.length }}</div>
+        </div>
+      </div>
+    </div>
+
     <main class="dss-viewport">
       <MapGraph 
         :closedEdges="dssStore.activeClosureIds" :routePath="dssStore.activeRoutePath"
@@ -72,6 +90,35 @@
       <RouteStats />
       <VehicleProfile />
     </main>
+
+    <div class="print-footer-section">
+      <div class="print-data-section">
+        <div class="print-column">
+          <h3>ITINERARIO ALTERNATIVO</h3>
+          <ul v-if="dssStore.textualItinerary && dssStore.textualItinerary.length" class="print-list">
+            <li v-for="(step, i) in dssStore.textualItinerary" :key="i">{{ i + 1 }}. {{ step }}</li>
+          </ul>
+          <p v-else class="print-empty">Nessun percorso calcolato.</p>
+        </div>
+
+        <div class="print-column">
+          <h3>DISTINTA CHIUSURE FISICHE (CANTIERI)</h3>
+          <ul v-if="dssStore.activeClosuresObjects && dssStore.activeClosuresObjects.length" class="print-list">
+            <li v-for="c in dssStore.activeClosuresObjects" :key="c.id">
+              [ID: {{ c.id }}] - {{ c.name }}
+            </li>
+          </ul>
+          <p v-else class="print-empty">Nessun cantiere attivo in questo scenario.</p>
+        </div>
+      </div>
+
+      <div class="print-footer">
+        <div class="signature-box">
+          <p>Il Tecnico Incaricato</p>
+          <div class="signature-line"></div>
+        </div>
+      </div>
+    </div>
 
     <FullscreenMenu 
       :isOpen="ui.fullScreenOpen" @close="ui.fullScreenOpen = false" 
@@ -244,4 +291,101 @@ body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family:
 .toast-anim-enter-active, .toast-anim-leave-active { transition: all 0.3s; }
 .toast-anim-enter-from { opacity: 0; transform: translateY(20px); }
 .toast-anim-leave-to { opacity: 0; transform: translateY(-20px); }
+
+/* =========================================
+   STAMPA E GENERAZIONE PDF (CSS NATIVO A4)
+   ========================================= */
+
+/* 1. Modalità ANTEPRIMA A SCHERMO (PRE-STAMPA) */
+.preview-mode {
+  background: #f1f5f9 !important;
+  overflow: hidden !important;
+}
+
+/* A SCHERMO: Nascondiamo l'interfaccia */
+.preview-mode .dss-header,
+.preview-mode .routing-widget,
+.preview-mode .sidebar,
+.preview-mode .vehicle-selector,
+.preview-mode .btn-system,
+.preview-mode .btn-reset,
+.preview-mode .close-fs {
+  display: none !important;
+}
+
+/* A SCHERMO: Nascondiamo ANCHE i testi del report per evitare il flash brutto */
+.preview-mode .print-header-section,
+.preview-mode .print-footer-section {
+  display: none !important; 
+}
+
+/* A SCHERMO: Stritoliamo la mappa alle dimensioni di stampa */
+.preview-mode .dss-viewport, 
+.preview-mode .map-wrapper, 
+.preview-mode #map {
+  height: 12cm !important; 
+  width: 100% !important;
+  position: relative !important;
+  margin-top: auto; 
+  margin-bottom: auto;
+}
+
+/* Base: nascosti sempre a schermo normale */
+.print-header-section, .print-footer-section { display: none; }
+
+/* 2. STAMPA REALE (COSA VEDE LA STAMPANTE) */
+@media print {
+  @page { size: A4 portrait; margin: 1.5cm; }
+  body, html { background: white !important; overflow: visible !important; height: auto !important; }
+  
+  /* Nascondi UI non necessaria */
+  .dss-header, .routing-widget, .closures-widget, .vehicle-selector, 
+  .fs-overlay, .toast-container, .leaflet-control-container, .global-overlay {
+    display: none !important;
+  }
+
+  .dss-main-container { display: block !important; height: auto !important; }
+  
+  /* TRUCCO FINALE: Qui usiamo il selettore .preview-mode insieme a .print-header-section 
+     per sovrascrivere il 'display: none' definito sopra per lo schermo.
+     Diciamo: "Se stai stampando, anche se c'è preview-mode, MOSTRA I TESTI!"
+  */
+  .dss-main-container.preview-mode .print-header-section,
+  .dss-main-container.preview-mode .print-footer-section,
+  .print-header-section, 
+  .print-footer-section { 
+    display: block !important; 
+    width: 100%; 
+    font-family: 'Inter', sans-serif; 
+    color: black; 
+  }
+
+  /* Intestazione */
+  .print-header-section { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-end; }
+  .print-logos h2 { margin: 0; font-size: 16px; font-weight: 900; }
+  .print-logos p { margin: 0; font-size: 10px; color: #475569; }
+  .print-title { text-align: right; }
+  .print-title h1 { margin: 0; font-size: 18px; font-weight: 900; color: #2563eb; }
+  .print-title p { margin: 0; font-size: 10px; font-weight: bold; }
+  .print-metadata-wrapper { width: 100%; margin-top: 15px; }
+  .print-metadata { display: flex; gap: 20px; background: #f8fafc; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; }
+  .meta-box { font-size: 11px; }
+
+  /* Mappa (Forzata a 12cm) */
+  .dss-viewport { position: relative !important; height: 12cm !important; width: 100% !important; border: 2px solid #cbd5e1 !important; page-break-inside: avoid; margin-bottom: 20px; overflow: hidden !important; }
+  #map, .map-wrapper { position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; }
+  .route-stats-panel { position: absolute !important; top: 10px !important; right: 10px !important; background: white !important; border: 1px solid black !important; z-index: 9999 !important; box-shadow: none !important; }
+  .map-legend { position: absolute !important; bottom: 10px !important; right: 10px !important; background: white !important; border: 1px solid black !important; z-index: 9999 !important; box-shadow: none !important; }
+
+  /* Footer */
+  .print-data-section { display: flex; gap: 30px; }
+  .print-column { flex: 1; }
+  .print-column h3 { font-size: 12px; font-weight: 900; border-bottom: 1px solid #cbd5e1; padding-bottom: 5px; color: #0f172a; margin-bottom: 10px; }
+  .print-list { padding-left: 15px; font-size: 10px; line-height: 1.6; margin: 0; }
+  .print-empty { font-size: 10px; font-style: italic; color: #64748b; margin: 0; }
+  .print-footer { margin-top: 50px; display: flex; justify-content: flex-end; page-break-inside: avoid; }
+  .signature-box { width: 6cm; text-align: center; }
+  .signature-box p { font-size: 11px; font-weight: bold; margin-bottom: 40px; }
+  .signature-line { border-top: 1px dashed black; }
+}
 </style>
