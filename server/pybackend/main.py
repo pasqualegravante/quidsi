@@ -59,12 +59,12 @@ app = FastAPI(
 )
 
 # ========================== API on /
-@app.get("/")
+@app.get("/engine")
 def root():
     return {"messaggio": "API ok, stampa funzionalità: ..."}
 
 # ========================== API on /graph
-@app.post("/graph/select")
+@app.post("/engine/graph/select")
 def graph_select(body: graph_req, DBW: QuidsiWrapper = Depends(db_init)):
     gmeta = DBW.graph_find(uid=ObjectId(body.uid), gid=ObjectId(body.gid))
     
@@ -79,7 +79,7 @@ def graph_select(body: graph_req, DBW: QuidsiWrapper = Depends(db_init)):
     
     return {"gid":str(USER_GRAPH[body.uid].gid)}
     
-@app.post("/graph/duplicate")
+@app.post("/engine/graph/duplicate")
 def graph_duplicate(body: graph_req, DBW: QuidsiWrapper = Depends(db_init)):
     gmeta = DBW.graph_find(uid=ObjectId(body.uid), gid=ObjectId(body.gid))
     gmeta.gid=None
@@ -88,14 +88,14 @@ def graph_duplicate(body: graph_req, DBW: QuidsiWrapper = Depends(db_init)):
     document = DBW.graph_save(gmeta)
     return document_to_payload(document, ["uid", "_id", "gid", "data"])
 
-@app.post("/graph/new")
+@app.post("/engine/graph/new")
 def graph_new(ubody: user_req, DBW: QuidsiWrapper = Depends(db_init)):
     gmeta = GraphMetadata(gid=None, uid=ObjectId(ubody.uid), graph=DEAFAULT_GRAPH, last_access=datetime.now())
     document = DBW.graph_save(gmeta)
 
     return document_to_payload(document, ["uid", "_id", "gid", "data"])
 
-@app.post("/graph/delete")
+@app.post("/engine/graph/delete")
 def graph_delete(body: graph_req, DBW: QuidsiWrapper = Depends(db_init)):
     # delete also object if active
     if body.uid in USER_GRAPH:
@@ -107,7 +107,7 @@ def graph_delete(body: graph_req, DBW: QuidsiWrapper = Depends(db_init)):
     deleted_gid = DBW.graph_delete(uid=ObjectId(body.uid), gid=ObjectId(body.gid))
     return {"gid":str(deleted_gid)}
 
-@app.post("/graph/edge/delete")
+@app.post("/engine/graph/edge/delete")
 def graph_delete(body: edge_req, DBW: QuidsiWrapper = Depends(db_init)):
     # delete also object if active
     document = None
@@ -129,7 +129,7 @@ def graph_delete(body: edge_req, DBW: QuidsiWrapper = Depends(db_init)):
     
     return document_to_payload(document, ["uid", "_id", "gid", "data"])
 
-@app.post("/graph/edge/getinfo")
+@app.post("/engine/graph/edge/getinfo")
 def graph_getinfo(body: edge_req):
     attr = None
     
@@ -147,7 +147,7 @@ def graph_getinfo(body: edge_req):
     
     return {"_id":body.gid, "uid":body.uid, str(body.attr):str(attr)}
 
-@app.post("/graph/dijkstra")
+@app.post("/engine/graph/dijkstra")
 def graph_dijkstra(body: edge_req):
     path = None
     
