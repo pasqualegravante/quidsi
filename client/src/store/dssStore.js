@@ -13,6 +13,8 @@ const ERROR_MESSAGES = {
 
 export const useDssStore = defineStore('dss', {
   state: () => ({
+    userId: '69962c67c111d0feb672ccc2', // Hardcoded o proveniente da auth
+    activeGid: '6996f6d079d6421703756eaf', // Grafo attualmente in uso
     roadList: [], 
     activeClosureIds: [], 
     closuresHistory: [], 
@@ -32,7 +34,7 @@ export const useDssStore = defineStore('dss', {
     sidebarTimeout: null,
     printMode: false,
 
-    // NUOVO: DATABASE POI CRITICI TRENTO
+    // DATABASE POI CRITICI TRENTO
     poiList: [
       { id: 'p1', name: 'Scuola Elementare Nicolodi', type: 'school', lat: 46.0691, lng: 11.1275 },
       { id: 'p2', name: 'Ospedale Santa Chiara', type: 'hospital', lat: 46.0545, lng: 11.1235 },
@@ -58,13 +60,11 @@ export const useDssStore = defineStore('dss', {
       };
     },
 
-    // NUOVO: ANALISI PROSSIMITÀ ZONE SENSIBILI
     sensitiveZonesAlerts(state) {
       if (!state.activeRoutePath.length) return [];
       const alerts = [];
       const routeIds = new Set(state.activeRoutePath.map(String));
 
-      // Simulazione logica spaziale: verifichiamo archi specifici vicini ai POI
       if (routeIds.has("1040") || routeIds.has("1041")) {
         alerts.push({ poi: state.poiList[3], msg: "Transito ravvicinato zona scolastica: possibile congestione pedonale." });
       }
@@ -149,28 +149,43 @@ export const useDssStore = defineStore('dss', {
       this.closuresFuture = [];
     },
 
-    toggleClosure(edge, entireStreet = false) {
+    // MODIFICATO: Ora comunica in maniera asincrona con l'endpoint stateful
+    async toggleClosure(edge, entireStreet = false) {
       if (!edge || !edge.id) return;
       this.saveHistoryState();
       
-      const targetId = String(edge.id);
-      let idsToProcess = [targetId];
+      let edgesToProcess = [edge];
       
+      // Seleziona l'intera strada: dobbiamo pescare gli oggetti originali per avere le coordinate (point_list)
       if (entireStreet && edge.street) {
-        idsToProcess = this.roadList.filter(r => r.street === edge.street).map(r => String(r.id));
+        edgesToProcess = this.roadList.filter(r => r.street === edge.street);
       }
       
-      const isCurrentlyClosed = idsToProcess.some(id => this.activeClosureIds.includes(id));
+      const isCurrentlyClosed = edgesToProcess.some(e => this.activeClosureIds.includes(String(e.id)));
       
-      if (isCurrentlyClosed) {
-        this.activeClosureIds = this.activeClosureIds.filter(id => !idsToProcess.includes(id));
-      } else {
-        this.activeClosureIds = Array.from(new Set([...this.activeClosureIds, ...idsToProcess]));
+      try {
+        if (isCurrentlyClosed) {
+          // Nota: nell'architettura stateful in cui "cancelli" l'arco, riaprirlo
+          // implicherebbe ricreare il grafo base. Manteniamo la logica visiva locale per sicurezza.
+          this.activeClosureIds = this.activeClosureIds.filter(id => !edgesToProcess.map(e => String(e.id)).includes(id));
+          uiStore.showToast("Per ripristinare fisicamente il tratto remoto, ricarica lo scenario.", "warning");
+        } else {
+          // Invia le cancellazioni fisiche degli archi al server
+          for (let e of edgesToProcess) {
+            if (e.point_list && e.point_list.length) {
+              await ApiService.deleteEdge(this.userId, this.activeGid, e.point_list);
+            }
+          }
+          const newIds = edgesToProcess.map(e => String(e.id));
+          this.activeClosureIds = Array.from(new Set([...this.activeClosureIds, ...newIds]));
+        }
+        
+        this.closeSidebar(); 
+        StorageService.saveClosures(this.activeClosureIds);
+        this.triggerAutoRecalc();
+      } catch (error) {
+        uiStore.showToast("Errore di sincronizzazione con il server durante la chiusura.", "error");
       }
-      
-      this.closeSidebar(); 
-      StorageService.saveClosures(this.activeClosureIds);
-      this.triggerAutoRecalc();
     },
 
     undoClosure() {
@@ -179,7 +194,7 @@ export const useDssStore = defineStore('dss', {
       this.activeClosureIds = this.closuresHistory.pop();
       StorageService.saveClosures(this.activeClosureIds);
       this.triggerAutoRecalc();
-      uiStore.showToast('Azione annullata', 'info');
+      uiStore.showToast('Azione annullata. Attenzione: ricaricare lo scenario per sincronizzare il server.', 'warning');
     },
 
     redoClosure() {
@@ -217,7 +232,7 @@ export const useDssStore = defineStore('dss', {
       StorageService.clearClosures();
       this.triggerAutoRecalc();
       this.closeSidebar();
-      uiStore.showToast('Tutte le chiusure rimosse', 'info');
+      uiStore.showToast('Tutte le chiusure rimosse. Ripristino del grafo richiesto.', 'warning');
     },
 
     triggerAutoRecalc() {
@@ -225,6 +240,7 @@ export const useDssStore = defineStore('dss', {
       setTimeout(() => this.executeDijkstra(), 600);
     },
 
+    // MODIFICATO: Utilizza UID, GID e Point_List
     async executeDijkstra() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       if (this.routing.startPoint.id === this.routing.endPoint.id) {
@@ -237,34 +253,24 @@ export const useDssStore = defineStore('dss', {
       uiStore.setCalculating(true);
       
       try {
-        if (this.activeClosureIds.length > 0) {
-          const baselinePayload = {
-            start_id: this.routing.startPoint.id, 
-            end_id: this.routing.endPoint.id,
-            closed_edges: [],
-            profile: this.vehicleProfile,
-            weights: StorageService.getWeights() 
-          };
-          const bData = await ApiService.calculateRoute(baselinePayload, this.currentAbortController.signal);
-          if (bData?.success) {
-            this.baselineStats.distance = bData.total_km || 0;
-            this.baselineStats.duration = bData.total_min || 0;
-          }
-        } else {
-          this.baselineStats = { distance: 0, duration: 0 };
+        // Costruzione del point_list basato sul primo punto di partenza e arrivo
+        const routePoints = [];
+        if (this.routing.startPoint.point_list && this.routing.startPoint.point_list.length) {
+            routePoints.push(this.routing.startPoint.point_list[0]);
+        }
+        if (this.routing.endPoint.point_list && this.routing.endPoint.point_list.length) {
+            routePoints.push(this.routing.endPoint.point_list[0]);
         }
 
-        const payload = {
-          start_id: this.routing.startPoint.id, 
-          end_id: this.routing.endPoint.id,
-          closed_edges: this.activeClosureIds,
-          profile: this.vehicleProfile,
-          weights: StorageService.getWeights() 
-        };
-
-        const data = await ApiService.calculateRoute(payload, this.currentAbortController.signal);
+        // Calcolo effettivo sullo scenario corrente
+        const data = await ApiService.calculateRoute(
+          this.userId,
+          this.activeGid,
+          routePoints,
+          this.currentAbortController.signal
+        );
         
-        if (data?.success && data.path?.length) {
+        if (data && data.path && data.path.length) {
           this.activeRoutePath = data.path; 
           this.routeStats.distance = data.total_km || 0;
           this.routeStats.duration = data.total_min || 0;

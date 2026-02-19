@@ -1,64 +1,80 @@
 /**
  * @file api.js
- * @description Service layer HTTP con DTO Validation e HTTP Error Translation
+ * @description Service layer HTTP aggiornato per l'architettura stateful basata su uid e gid.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
-
-/**
- * Data Transfer Object Builder (Sanitizzazione Payload)
- * Evita di far crashare il backend Python con dati sporchi o undefined
- */
-function buildRouteDTO(payload) {
-  const start = String(payload.start_id || '').trim();
-  const end = String(payload.end_id || '').trim();
-  
-  if (!start || start === 'undefined' || start === 'null') throw new Error('VALIDATION_ERROR');
-  if (!end || end === 'undefined' || end === 'null') throw new Error('VALIDATION_ERROR');
-  if (start === end) throw new Error('VALIDATION_ERROR_SAME_NODE');
-
-  return {
-    start_id: start,
-    end_id: end,
-    // Pulisce l'array eliminando eventuali null e forzando tutto a Stringa
-    closed_edges: Array.isArray(payload.closed_edges) 
-      ? payload.closed_edges.filter(id => id != null).map(String) 
-      : [],
-    weights: payload.weights || {}
-  };
-}
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/engine/graph';
 
 export const ApiService = {
-  async calculateRoute(rawPayload, signal = null) {
-    try {
-      // 1. DTO Validation: se fallisce, blocca tutto qui.
-      const safePayload = buildRouteDTO(rawPayload);
-
-      const response = await fetch(`${API_BASE_URL}/dijkstra`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(safePayload),
-        signal
-      });
-      
-      // 2. HTTP Error Translation
-      if (!response.ok) {
-        if (response.status === 404) throw new Error('NOT_FOUND'); // Nodo isolato
-        if (response.status === 400) throw new Error('BAD_REQUEST'); // Dati malformati
-        if (response.status === 500) throw new Error('SERVER_ERROR'); // Python crash
-        throw new Error('GENERIC_ERROR');
-      }
-      
-      return await response.json();
-
-    } catch (error) {
-      if (error.name === 'AbortError') throw new Error('ABORTED');
-      console.error("ApiService Error:", error);
-      throw error; // Rilanciamo il codice stringa (es. 'NOT_FOUND') ad App.vue
-    }
+  // 1. Calcolo Percorso
+  async calculateRoute(uid, gid, pointList, signal = null) {
+    const res = await fetch(`${API_BASE_URL}/dijkstra`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, gid, point_list: pointList }),
+      signal
+    });
+    if (!res.ok) throw new Error(res.status === 404 ? 'NOT_FOUND' : 'GENERIC_ERROR');
+    return await res.json();
   },
 
-  async saveScenario(name, closedEdges) {
-    return { success: true };
+  // 2. Crea Nuovo Grafo (Inizializzazione)
+  async createGraph(uid) {
+    const res = await fetch(`${API_BASE_URL}/new`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid })
+    });
+    return await res.json();
+  },
+
+  // 3. Elimina Grafo (Cancellazione Scenario)
+  async deleteGraph(uid, gid) {
+    const res = await fetch(`${API_BASE_URL}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, gid })
+    });
+    return await res.json();
+  },
+
+  // 4. Seleziona/Carica Grafo (Caricamento Scenario)
+  async selectGraph(uid, gid) {
+    const res = await fetch(`${API_BASE_URL}/select`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, gid })
+    });
+    return await res.json();
+  },
+
+  // 5. Duplica Grafo (Creazione di una copia di lavoro)
+  async duplicateGraph(uid, gid) {
+    const res = await fetch(`${API_BASE_URL}/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, gid })
+    });
+    return await res.json();
+  },
+
+  // 6. Elimina Arco (Chiusura Cantiere)
+  async deleteEdge(uid, gid, pointList) {
+    const res = await fetch(`${API_BASE_URL}/edge/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, gid, point_list: pointList })
+    });
+    return await res.json();
+  },
+
+  // 7. Info Arco
+  async getEdgeInfo(uid, gid, pointList, attr = 'desvia') {
+    const res = await fetch(`${API_BASE_URL}/edge/getinfo`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, gid, point_list: pointList, attr })
+    });
+    return await res.json();
   }
 };

@@ -11,7 +11,7 @@ import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
 import { markRaw } from 'vue';
 import { StorageService } from '../services/storage';
-import { useDssStore } from '../store/dssStore'; // IMPORTANTE per accedere ai POI
+import { useDssStore } from '../store/dssStore'; 
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -32,7 +32,6 @@ export default {
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
 
   setup() { 
-    // Inizializza dssStore per usarlo nel component
     const dssStore = useDssStore(); 
     return { dssStore }; 
   },
@@ -73,7 +72,7 @@ export default {
   mounted() { 
     this.initMap(); 
     this.loadGraph(); 
-    this.renderPOI(); // Carica i POI all'avvio
+    this.renderPOI(); 
   },
 
   beforeUnmount() {
@@ -96,7 +95,7 @@ export default {
       }).addTo(this.map);
 
       this.statusIconLayer = markRaw(L.layerGroup()).addTo(this.map);
-      this.poiLayer = markRaw(L.layerGroup()).addTo(this.map); // NUOVO: Layer separato per i POI
+      this.poiLayer = markRaw(L.layerGroup()).addTo(this.map); 
       
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
 
@@ -116,7 +115,6 @@ export default {
       this.map.on('zoomend', saveState);
     },
 
-    // NUOVO: METODO PER DISEGNARE I PUNTI DI INTERESSE
     renderPOI() {
       if (!this.poiLayer) return;
       this.poiLayer.clearLayers();
@@ -160,7 +158,19 @@ export default {
             const rawStreet = feature.properties.desvia;
             const streetName = (rawStreet && rawStreet.trim() !== '') ? rawStreet : `Tratto Senza Nome (${uniqueId})`;
 
+            // MODIFICATO: Estraiamo il Point_List originale prima della trasformazione Leaflet
+            let edgePointList = [];
+            if (feature.geometry && feature.geometry.coordinates) {
+              const coords = feature.geometry.type === 'MultiLineString' 
+                ? feature.geometry.coordinates[0] 
+                : feature.geometry.coordinates;
+              
+              edgePointList = coords.map(c => [`${c[0]} ${c[1]}`]);
+            }
+
             feature.properties.uniqueDbId = uniqueId;
+            // Salviamo la reference direttamente
+            feature.properties.point_list = edgePointList;
             const uid = String(L.stamp(layer));
             feature.properties._uid = uid;
 
@@ -180,7 +190,15 @@ export default {
               L.DomEvent.stopPropagation(e);
               if (this.cursor !== 'crosshair') this.highlight(layer);
               
-              this.$emit('select-edge', { uid: uid, id: uniqueId, street: streetName, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
+              // MODIFICATO: Emit include anche le coordinate "point_list"
+              this.$emit('select-edge', { 
+                uid: uid, 
+                id: uniqueId, 
+                street: streetName, 
+                oneWay: feature.properties.sensouni, 
+                isClosed: !!feature.properties.isClosed,
+                point_list: edgePointList
+              });
             });
           }
         });
@@ -188,10 +206,23 @@ export default {
         this.graphLayer = markRaw(geojson);
         this.graphLayer.addTo(this.map);
 
+        // MODIFICATO: Includiamo anche il point_list nella roadList generata
         this.$emit('graph-loaded', data.features.map(f => {
           const raw = f.properties.desvia;
           const sName = (raw && raw.trim() !== '') ? raw : `Tratto Senza Nome (${f.properties.uniqueDbId})`;
-          return { id: String(f.properties.uniqueDbId), uid: String(f.properties._uid), street: sName };
+          
+          let edgePointList = [];
+          if (f.geometry && f.geometry.coordinates) {
+            const coords = f.geometry.type === 'MultiLineString' ? f.geometry.coordinates[0] : f.geometry.coordinates;
+            edgePointList = coords.map(c => [`${c[0]} ${c[1]}`]);
+          }
+
+          return { 
+            id: String(f.properties.uniqueDbId), 
+            uid: String(f.properties._uid), 
+            street: sName,
+            point_list: edgePointList 
+          };
         }));
 
         if (this.closedEdges.length) this.syncClosures(this.closedEdges);
@@ -288,7 +319,7 @@ export default {
           this.map.flyToBounds(group.getBounds(), { paddingBottomRight: [360, 0], paddingTopLeft: [40, 40], maxZoom: 18, duration: 1.2 });
           this.highlight(layers);
           const props = layers[0].feature.properties;
-          this.$emit('select-edge', { uid: props._uid, id: props.uniqueDbId, street: props.desvia, oneWay: props.sensouni, isClosed: !!props.isClosed });
+          this.$emit('select-edge', { uid: props._uid, id: props.uniqueDbId, street: props.desvia, oneWay: props.sensouni, isClosed: !!props.isClosed, point_list: props.point_list });
         });
       }
     },
@@ -347,7 +378,6 @@ export default {
 </script>
 
 <style>
-/* CSS originale dei marker */
 .status-icon-closed { background: #ef4444; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center; }
 .status-icon-closed::after { content: ''; display: block; width: 60%; height: 2px; background: white; border-radius: 1px; }
 .custom-map-pin-container { background: none !important; border: none !important; }
@@ -360,10 +390,8 @@ export default {
 .pin-pulse { position: absolute; bottom: -5px; left: 50%; width: 20px; height: 10px; margin-left: -10px; background: rgba(0, 0, 0, 0.2); border-radius: 50%; z-index: 1; animation: pin-shadow-pulse 2s infinite; }
 @keyframes pin-shadow-pulse { 0% { transform: scale(0.5); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
 
-/* POI Marker Base */
 .poi-marker { background: transparent; border: none; }
 
-/* EFFETTO ANT PATH (Scorrimento Linea) */
 @keyframes ant-path-animation {
   0% { stroke-dashoffset: 40; }
   100% { stroke-dashoffset: 0; }
@@ -374,7 +402,6 @@ export default {
   animation: ant-path-animation 1s linear infinite !important;
 }
 
-/* Stampa: Blocchiamo l'animazione per non avere rendering strani su PDF */
 @media print {
   :deep(.route-ant-path) {
     animation: none !important;

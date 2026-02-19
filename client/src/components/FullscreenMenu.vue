@@ -161,11 +161,12 @@
               <div class="sc-meta">
                 <span>📍 {{ scenario.closedCount }} interruzioni</span>
                 <span>⚙️ Pesi: {{ scenario.weightsMode }}</span>
+                <span class="sc-gid-mini">GID: {{ scenario.gid ? scenario.gid.substring(0,8) + '...' : 'N/A' }}</span>
               </div>
             </div>
             <div class="sc-actions">
               <button class="btn-load" @click="loadScenario(scenario)">APPLICA</button>
-              <button class="btn-delete-mini" @click="deleteScenario(scenario.id)">🗑️</button>
+              <button class="btn-delete-mini" @click="deleteScenario(scenario)">🗑️</button>
             </div>
           </div>
           <div v-if="scenarios.length === 0" class="empty-list">Nessun progetto trovato.</div>
@@ -182,6 +183,8 @@
  * @description Modulo Gestionale Avanzato per Pubblica Amministrazione.
  */
 import { useDssStore } from '../store/dssStore';
+import { uiStore } from '../store/uiStore';
+import { ApiService } from '../services/api';
 
 export default {
   name: 'FullscreenMenu',
@@ -189,7 +192,7 @@ export default {
   emits: ['close', 'load-scenario', 'save-request'],
   setup() {
     const dssStore = useDssStore();
-    return { dssStore };
+    return { dssStore, uiStore };
   },
   data() {
     return {
@@ -205,10 +208,9 @@ export default {
       
       weights: { residentialPenalty: 1.5, oneWayPenalty: 1.2, congestionLevel: 1.0, emergencyOverride: false },
       newScenarioName: '',
-      scenarios: [
-        { id: 1, name: 'Piano Neve Comparto Nord', date: '2026-01-10T14:30:00', closedCount: 14, weightsMode: 'Invernale', closed_edges: ['1040', '1041'] },
-        { id: 2, name: 'Cantiere bypass ferroviario', date: '2026-02-05T09:00:00', closedCount: 5, weightsMode: 'Standard', closed_edges: ['2050'] }
-      ]
+      
+      // I dati hardcoded rimossi per evitare GID inesistenti: li peschiamo tutti dal localStorage
+      scenarios: []
     }
   },
   watch: {
@@ -249,17 +251,10 @@ export default {
           clearInterval(interval);
           setTimeout(() => {
             if (type === 'pdf') {
-              // 1. Forza la modalità anteprima nello store (App.vue stritola la mappa)
               this.dssStore.printMode = true; 
-              
-              // 2. Chiudi il menu fullscreen
               this.$emit('close'); 
-              
-              // 3. Aspetta 1 SECONDO PIENO che MapGraph finisca il fitBounds e carichi i tiles
               setTimeout(() => { 
                 window.print(); 
-                
-                // 4. Ripristina la vista normale dopo che la finestra di stampa si chiude
                 setTimeout(() => { this.dssStore.printMode = false; }, 500);
               }, 1000); 
             }
@@ -277,6 +272,7 @@ export default {
     saveWeights() {
       localStorage.setItem('quidsi_algorithm_weights', JSON.stringify(this.weights));
       this.currentView = 'dashboard';
+      this.uiStore.showToast("Impostazioni salvate con successo.", "success");
     },
     getCongestionLabel(val) {
       if (val == 1.0) return "Regolare"; if (val == 1.5) return "Moderato"; return "Critico";
@@ -286,20 +282,79 @@ export default {
       const saved = localStorage.getItem('quidsi_local_scenarios');
       if (saved) this.scenarios = JSON.parse(saved);
     },
-    saveCurrentScenario() {
-      this.$emit('save-request', this.newScenarioName);
-      this.newScenarioName = '';
-    },
-    loadScenario(scenario) {
-      this.$emit('load-scenario', scenario);
-      this.$emit('close');
-    },
-    deleteScenario(id) {
-      if(confirm("Eliminare lo scenario selezionato?")) {
-        this.scenarios = this.scenarios.filter(s => s.id !== id);
+
+    // MODIFICATO: Salva creando un duplicato del grafo corrente via API
+    async saveCurrentScenario() {
+      try {
+        // 1. Chiediamo al backend di duplicare lo scenario attivo per creare lo snapshot
+        const response = await ApiService.duplicateGraph(this.dssStore.userId, this.dssStore.activeGid);
+        
+        if (!response || !response.gid) throw new Error("GID non restituito dal server.");
+        
+        // 2. Costruiamo l'oggetto di metadati da salvare in locale
+        const newScenario = {
+          id: Date.now(),
+          gid: response.gid, // L'ID remoto
+          name: this.newScenarioName,
+          date: new Date().toISOString(),
+          closedCount: this.dssStore.activeClosureIds.length,
+          weightsMode: this.getCongestionLabel(this.weights.congestionLevel),
+          // Salviamo anche le chiusure nel caso la mappa debba ri-sincronizzarsi visivamente
+          closed_edges: [...this.dssStore.activeClosureIds]
+        };
+
+        this.scenarios.push(newScenario);
         localStorage.setItem('quidsi_local_scenarios', JSON.stringify(this.scenarios));
+        
+        this.uiStore.showToast(`Scenario "${this.newScenarioName}" salvato sul server.`, "success");
+        this.$emit('save-request', this.newScenarioName);
+        this.newScenarioName = '';
+      } catch (error) {
+        this.uiStore.showToast("Errore durante la duplicazione e salvataggio del grafo.", "error");
+        console.error(error);
       }
     },
+
+    // MODIFICATO: Carica chiamando selectGraph() sull'API
+    async loadScenario(scenario) {
+      if (!scenario.gid) {
+        this.uiStore.showToast("Scenario corrotto (nessun GID).", "error");
+        return;
+      }
+      try {
+        // 1. Informa il server che questo GID deve diventare quello attivo
+        await ApiService.selectGraph(this.dssStore.userId, scenario.gid);
+        
+        // 2. Sincronizza lo store locale col nuovo ID
+        this.dssStore.activeGid = scenario.gid;
+        
+        // 3. Esegue la callback di chiusura e applicazione frontend (App.vue si aspetta 'closed_edges' per colorare la mappa)
+        this.$emit('load-scenario', scenario);
+        this.$emit('close');
+      } catch (error) {
+        this.uiStore.showToast("Impossibile caricare il grafo dal server.", "error");
+        console.error(error);
+      }
+    },
+
+    // MODIFICATO: Elimina fisicamente il grafo prima di toglierlo dall'UI
+    async deleteScenario(scenario) {
+      if(confirm(`Sei sicuro di voler eliminare lo scenario "${scenario.name}"? Verrà rimosso in modo permanente dal server.`)) {
+        try {
+          if (scenario.gid) {
+            await ApiService.deleteGraph(this.dssStore.userId, scenario.gid);
+          }
+          
+          this.scenarios = this.scenarios.filter(s => s.id !== scenario.id);
+          localStorage.setItem('quidsi_local_scenarios', JSON.stringify(this.scenarios));
+          this.uiStore.showToast("Scenario eliminato correttamente.", "success");
+        } catch (error) {
+          this.uiStore.showToast("Errore durante l'eliminazione dal server.", "error");
+          console.error(error);
+        }
+      }
+    },
+    
     formatDate(dateStr) {
       return new Date(dateStr).toLocaleDateString('it-IT', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute:'2-digit'});
     },
@@ -361,6 +416,9 @@ export default {
 .btn-save-new { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 800; cursor: pointer; }
 .scenarios-list { display: flex; flex-direction: column; gap: 15px; max-height: 50vh; overflow-y: auto; }
 .scenario-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 20px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+/* Badge GID */
+.sc-gid-mini { display: block; font-family: monospace; font-size: 0.75rem; color: #64748b; margin-top: 4px; }
 
 .btn-logout { background: transparent; color: #ef4444; border: 1px solid #ef4444; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-top: 40px; }
 
