@@ -1,9 +1,8 @@
 const mongoose = require("mongoose");
 const validator = require("validator");
 const userSchema = new mongoose.Schema({
-    name: { type: String, required: [true, "Name is a required field."] },
-    surname: { type: String, required: [true, "Surname is a required field."] },
-    nickname: { type: String, required: [true, "Nickname is a required field."], unique: [true, "The given nickname already exists."] },
+    name: { type: String/*, required: [true, "Name is a required field."]*/},
+    surname: { type: String/*, required: [true, "Surname is a required field."]*/},
     password: {
         type: String,
         required: [true, "Password is a required field."]/*,
@@ -37,17 +36,16 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: [true, "Email is a required field."],
         unique: [true, "The given email already exists."],
-        validate(value) {
+        /*validate(value) {
             if (!validator.isEmail(value))
                 throw new Error("Please enter a valid e-mail.");
-        }
+        }*/
     },
-    birth: { type: Date, required: [true, "Birth is a required field."] }, //Have to check if that user has at least 16yo
+    //birth: { type: Date, required: [true, "Birth is a required field."] },
     profilepic: String,
-    settings: {type: Object},
-    followers: {type:[String]}
-});
-const Users = mongoose.model("Users", userSchema);
+    settings: {type: Object}
+}, {collection:"utente"});
+const Users = mongoose.model("Utente", userSchema);
 
 ////////
 
