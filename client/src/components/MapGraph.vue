@@ -116,16 +116,17 @@ export default {
           },
           style: (feature) => {
             if (feature.properties.isClosed) return { color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 };
-            
-            // MODIFICA QUI: Aggiunto className 'route-ant-path' per innescare l'animazione CSS
             if (feature.properties.isRoutePath) return { color: '#10b981', weight: 7, opacity: 1, className: 'route-ant-path' };
-            
             const baseOpacity = this.printMode ? 0.1 : 0.6;
             return { color: feature.properties.sensouni === 1 ? '#3b82f6' : '#94a3b8', weight: 3, opacity: baseOpacity };
           },
           onEachFeature: (feature, layer) => {
             const uniqueId = String(feature.properties.id_arco || feature.properties.codice);
             const baseCodice = String(feature.properties.codice_via || feature.properties.codice);
+
+            // FIX NOME VIA: Se il db non ha il nome, creiamo un fallback pulito
+            const rawStreet = feature.properties.desvia;
+            const streetName = (rawStreet && rawStreet.trim() !== '') ? rawStreet : `Tratto Senza Nome (${uniqueId})`;
 
             feature.properties.uniqueDbId = uniqueId;
             const uid = String(L.stamp(layer));
@@ -146,7 +147,9 @@ export default {
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               if (this.cursor !== 'crosshair') this.highlight(layer);
-              this.$emit('select-edge', { uid: uid, id: uniqueId, street: feature.properties.desvia, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
+              
+              // Emette il nome strada pulito
+              this.$emit('select-edge', { uid: uid, id: uniqueId, street: streetName, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
             });
           }
         });
@@ -154,9 +157,12 @@ export default {
         this.graphLayer = markRaw(geojson);
         this.graphLayer.addTo(this.map);
 
-        this.$emit('graph-loaded', data.features.map(f => ({
-          id: String(f.properties.uniqueDbId), uid: String(f.properties._uid), street: f.properties.desvia || 'Senza nome'
-        })));
+        // FIX NOME VIA anche nell'elenco globale
+        this.$emit('graph-loaded', data.features.map(f => {
+          const raw = f.properties.desvia;
+          const sName = (raw && raw.trim() !== '') ? raw : `Tratto Senza Nome (${f.properties.uniqueDbId})`;
+          return { id: String(f.properties.uniqueDbId), uid: String(f.properties._uid), street: sName };
+        }));
 
         if (this.closedEdges.length) this.syncClosures(this.closedEdges);
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
