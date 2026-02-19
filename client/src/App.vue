@@ -110,23 +110,41 @@
     </main>
 
     <div class="print-footer-section">
+      
+      <div v-if="dssStore.sensitiveZonesAlerts && dssStore.sensitiveZonesAlerts.length" class="print-alert-box">
+        <h4>⚠️ AVVISI ZONE SENSIBILI (POI)</h4>
+        <ul>
+          <li v-for="alert in dssStore.sensitiveZonesAlerts" :key="alert.poi.id">
+            <strong>{{ alert.poi.name }}:</strong> {{ alert.msg }}
+          </li>
+        </ul>
+      </div>
+
       <div class="print-data-section">
         <div class="print-column">
-          <h3>ITINERARIO ALTERNATIVO</h3>
-          <ul v-if="dssStore.textualItinerary && dssStore.textualItinerary.length" class="print-list">
-            <li v-for="(step, i) in dssStore.textualItinerary" :key="i">{{ i + 1 }}. {{ step }}</li>
-          </ul>
-          <p v-else class="print-empty">Nessun percorso calcolato.</p>
-        </div>
+          <template v-if="dssStore.activeRoutePath.length && dssStore.activeClosureIds.length">
+            <h3>ANALISI COMPARATIVA TEMPI</h3>
+            <ImpactChart 
+              :baseline="dssStore.baselineStats.duration" 
+              :current="dssStore.routeStats.duration" 
+            />
+          </template>
 
-        <div class="print-column">
-          <h3>DISTINTA CHIUSURE FISICHE (CANTIERI)</h3>
+          <h3 style="margin-top: 20px;">DISTINTA CHIUSURE FISICHE (CANTIERI)</h3>
           <ul v-if="dssStore.activeClosuresObjects && dssStore.activeClosuresObjects.length" class="print-list">
             <li v-for="c in dssStore.activeClosuresObjects" :key="c.id">
               [ID: {{ c.id }}] - {{ c.name }}
             </li>
           </ul>
           <p v-else class="print-empty">Nessun cantiere attivo in questo scenario.</p>
+        </div>
+
+        <div class="print-column">
+          <h3>ITINERARIO ALTERNATIVO</h3>
+          <ul v-if="dssStore.textualItinerary && dssStore.textualItinerary.length" class="print-list">
+            <li v-for="(step, i) in dssStore.textualItinerary" :key="i">{{ i + 1 }}. {{ step }}</li>
+          </ul>
+          <p v-else class="print-empty">Nessun percorso calcolato.</p>
         </div>
       </div>
 
@@ -160,10 +178,11 @@ import MapLegend from './components/MapLegend.vue';
 import ActiveClosures from './components/ActiveClosures.vue';
 import RouteStats from './components/RouteStats.vue';
 import VehicleProfile from './components/VehicleProfile.vue';
+import ImpactChart from './components/ImpactChart.vue'; // <-- Import component Grafico
 
 export default {
   name: 'App',
-  components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures, RouteStats, VehicleProfile },
+  components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures, RouteStats, VehicleProfile, ImpactChart },
 
   setup() {
     const dssStore = useDssStore();
@@ -279,6 +298,7 @@ export default {
   }
 };
 </script>
+
 <style>
 .toast {
   display: flex;
@@ -554,7 +574,7 @@ body, html {
 
   .print-metadata {
     display: flex;
-    flex-wrap: wrap; /* Aggiunto per mandare a capo i metadati se non c'è spazio */
+    flex-wrap: wrap; 
     gap: 15px;
     background: #f8fafc;
     padding: 10px;
@@ -593,7 +613,7 @@ body, html {
     height: 12cm !important;
   }
 
-  /* Nascondiamo il riquadro fluttuante per lasciare pulita la stampa */
+  /* Nascondiamo il riquadro fluttuante per lasciare pulita la mappa in stampa */
   .route-stats-panel {
     display: none !important;
   }
@@ -606,6 +626,43 @@ body, html {
     border: 1px solid black !important;
     z-index: 9999 !important;
     box-shadow: none !important;
+  }
+
+  /* NUOVO: Stili per gli Alert POI nel PDF */
+  .print-alert-box { 
+    background: #fff7ed; 
+    border: 2px solid #f97316; 
+    padding: 12px; 
+    border-radius: 6px; 
+    margin-bottom: 20px; 
+  }
+  .print-alert-box h4 { 
+    margin: 0 0 8px 0; 
+    color: #c2410c; 
+    font-size: 11px; 
+    font-weight: 900; 
+    letter-spacing: 0.5px; 
+  }
+  .print-alert-box ul { 
+    margin: 0; 
+    padding-left: 20px; 
+  }
+  .print-alert-box li { 
+    font-size: 10px; 
+    color: #431407; 
+    margin-bottom: 4px; 
+    line-height: 1.4; 
+  }
+
+  /* FIX: Mantiene l'altezza fissa del grafico in stampa */
+  .chart-container {
+    height: 180px !important;
+    width: 100% !important;
+    page-break-inside: avoid;
+  }
+  canvas { 
+    max-width: 100% !important; 
+    height: 180px !important; 
   }
 
   .print-data-section { display: flex; gap: 30px; }

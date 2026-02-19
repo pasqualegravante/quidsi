@@ -11,6 +11,7 @@ import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
 import { markRaw } from 'vue';
 import { StorageService } from '../services/storage';
+import { useDssStore } from '../store/dssStore'; // IMPORTANTE per accedere ai POI
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -30,13 +31,19 @@ export default {
   },
   emits: ['select-edge', 'graph-loaded', 'focus-consumed', 'missed-click'],
 
+  setup() { 
+    // Inizializza dssStore per usarlo nel component
+    const dssStore = useDssStore(); 
+    return { dssStore }; 
+  },
+
   created() {
     this.uidIndex = {};   
     this.groupIndex = {}; 
   },
 
   data() {
-    return { map: null, graphLayer: null, loading: false, routeMarkers: { start: null, end: null }, statusIconLayer: null, mapStateTimeout: null, lastSelectedUids: [] };
+    return { map: null, graphLayer: null, poiLayer: null, loading: false, routeMarkers: { start: null, end: null }, statusIconLayer: null, mapStateTimeout: null, lastSelectedUids: [] };
   },
 
   watch: {
@@ -63,7 +70,11 @@ export default {
     }
   },
 
-  mounted() { this.initMap(); this.loadGraph(); },
+  mounted() { 
+    this.initMap(); 
+    this.loadGraph(); 
+    this.renderPOI(); // Carica i POI all'avvio
+  },
 
   beforeUnmount() {
     if (this.mapStateTimeout) clearTimeout(this.mapStateTimeout);
@@ -85,6 +96,8 @@ export default {
       }).addTo(this.map);
 
       this.statusIconLayer = markRaw(L.layerGroup()).addTo(this.map);
+      this.poiLayer = markRaw(L.layerGroup()).addTo(this.map); // NUOVO: Layer separato per i POI
+      
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
 
       this.map.on('click', () => {
@@ -101,6 +114,26 @@ export default {
       };
       this.map.on('moveend', saveState);
       this.map.on('zoomend', saveState);
+    },
+
+    // NUOVO: METODO PER DISEGNARE I PUNTI DI INTERESSE
+    renderPOI() {
+      if (!this.poiLayer) return;
+      this.poiLayer.clearLayers();
+      
+      const icons = { school: '🏫', hospital: '🏥', fire: '🚒' };
+      
+      this.dssStore.poiList.forEach(poi => {
+        const customIcon = L.divIcon({ 
+          html: `<div style="font-size:20px; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.5));">${icons[poi.type] || '📍'}</div>`, 
+          className: 'poi-marker', 
+          iconSize: [25, 25],
+          iconAnchor: [12, 25]
+        });
+        L.marker([poi.lat, poi.lng], { icon: customIcon })
+         .addTo(this.poiLayer)
+         .bindTooltip(`<strong>${poi.name}</strong>`, { direction: 'top', offset: [0, -25] });
+      });
     },
 
     async loadGraph() {
@@ -124,7 +157,6 @@ export default {
             const uniqueId = String(feature.properties.id_arco || feature.properties.codice);
             const baseCodice = String(feature.properties.codice_via || feature.properties.codice);
 
-            // FIX NOME VIA: Se il db non ha il nome, creiamo un fallback pulito
             const rawStreet = feature.properties.desvia;
             const streetName = (rawStreet && rawStreet.trim() !== '') ? rawStreet : `Tratto Senza Nome (${uniqueId})`;
 
@@ -148,7 +180,6 @@ export default {
               L.DomEvent.stopPropagation(e);
               if (this.cursor !== 'crosshair') this.highlight(layer);
               
-              // Emette il nome strada pulito
               this.$emit('select-edge', { uid: uid, id: uniqueId, street: streetName, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
             });
           }
@@ -157,7 +188,6 @@ export default {
         this.graphLayer = markRaw(geojson);
         this.graphLayer.addTo(this.map);
 
-        // FIX NOME VIA anche nell'elenco globale
         this.$emit('graph-loaded', data.features.map(f => {
           const raw = f.properties.desvia;
           const sName = (raw && raw.trim() !== '') ? raw : `Tratto Senza Nome (${f.properties.uniqueDbId})`;
@@ -255,7 +285,6 @@ export default {
       if (layers.length > 0) {
         requestAnimationFrame(() => {
           const group = L.featureGroup(layers);
-          // VOLO FLUIDO AL POSTO DEL SALTO STATICO
           this.map.flyToBounds(group.getBounds(), { paddingBottomRight: [360, 0], paddingTopLeft: [40, 40], maxZoom: 18, duration: 1.2 });
           this.highlight(layers);
           const props = layers[0].feature.properties;
@@ -330,6 +359,9 @@ export default {
 .pin-leg { width: 2px; height: 4px; background: white; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 4; }
 .pin-pulse { position: absolute; bottom: -5px; left: 50%; width: 20px; height: 10px; margin-left: -10px; background: rgba(0, 0, 0, 0.2); border-radius: 50%; z-index: 1; animation: pin-shadow-pulse 2s infinite; }
 @keyframes pin-shadow-pulse { 0% { transform: scale(0.5); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
+
+/* POI Marker Base */
+.poi-marker { background: transparent; border: none; }
 
 /* EFFETTO ANT PATH (Scorrimento Linea) */
 @keyframes ant-path-animation {

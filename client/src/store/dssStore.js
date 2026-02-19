@@ -20,9 +20,7 @@ export const useDssStore = defineStore('dss', {
     activeRoutePath: [], 
     routing: { startPoint: null, endPoint: null, activeMode: null },
     
-    // STATISTICHE ATTUALI (Con cantieri)
     routeStats: { distance: 0, duration: 0 },
-    // STATISTICHE BASELINE (Senza cantieri)
     baselineStats: { distance: 0, duration: 0 },
     
     vehicleProfile: 'light', 
@@ -32,11 +30,18 @@ export const useDssStore = defineStore('dss', {
     isSidebarOpen: false,
     selectedEdge: null,
     sidebarTimeout: null,
-    printMode: false
+    printMode: false,
+
+    // NUOVO: DATABASE POI CRITICI TRENTO
+    poiList: [
+      { id: 'p1', name: 'Scuola Elementare Nicolodi', type: 'school', lat: 46.0691, lng: 11.1275 },
+      { id: 'p2', name: 'Ospedale Santa Chiara', type: 'hospital', lat: 46.0545, lng: 11.1235 },
+      { id: 'p3', name: 'Vigili del Fuoco Trento', type: 'fire', lat: 46.0745, lng: 11.1185 },
+      { id: 'p4', name: 'Liceo Giovanni Prati', type: 'school', lat: 46.0675, lng: 11.1215 }
+    ]
   }),
 
   getters: {
-    // Calcola il "Delta" (Impatto)
     routeImpact(state) {
       if (!state.baselineStats.duration || state.activeClosureIds.length === 0) return null;
       
@@ -48,9 +53,25 @@ export const useDssStore = defineStore('dss', {
         timeDiff: timeDiff > 0 ? `+${timeDiff}` : timeDiff,
         distDiff: distDiff > 0 ? `+${distDiff.toFixed(1)}` : distDiff.toFixed(1),
         percent: timePercent,
-        isCritical: timePercent > 30, // Se il ritardo supera il 30% lo consideriamo critico
+        isCritical: timePercent > 30,
         isWarning: timePercent > 10 && timePercent <= 30
       };
+    },
+
+    // NUOVO: ANALISI PROSSIMITÀ ZONE SENSIBILI
+    sensitiveZonesAlerts(state) {
+      if (!state.activeRoutePath.length) return [];
+      const alerts = [];
+      const routeIds = new Set(state.activeRoutePath.map(String));
+
+      // Simulazione logica spaziale: verifichiamo archi specifici vicini ai POI
+      if (routeIds.has("1040") || routeIds.has("1041")) {
+        alerts.push({ poi: state.poiList[3], msg: "Transito ravvicinato zona scolastica: possibile congestione pedonale." });
+      }
+      if (routeIds.has("2050") || routeIds.has("1010")) {
+        alerts.push({ poi: state.poiList[1], msg: "Percorso sull'asse Ospedaliero: garantire la priorità ai mezzi di soccorso." });
+      }
+      return alerts;
     },
 
     activeClosuresObjects(state) {
@@ -142,10 +163,8 @@ export const useDssStore = defineStore('dss', {
       const isCurrentlyClosed = idsToProcess.some(id => this.activeClosureIds.includes(id));
       
       if (isCurrentlyClosed) {
-        // RIMUOVE IL CANTIERE
         this.activeClosureIds = this.activeClosureIds.filter(id => !idsToProcess.includes(id));
       } else {
-        // AGGIUNGE IL CANTIERE
         this.activeClosureIds = Array.from(new Set([...this.activeClosureIds, ...idsToProcess]));
       }
       
@@ -218,12 +237,11 @@ export const useDssStore = defineStore('dss', {
       uiStore.setCalculating(true);
       
       try {
-        // --- 1. CALCOLO BASELINE (Se ci sono chiusure, calcoliamo prima il percorso pulito) ---
         if (this.activeClosureIds.length > 0) {
           const baselinePayload = {
             start_id: this.routing.startPoint.id, 
             end_id: this.routing.endPoint.id,
-            closed_edges: [], // Nessuna chiusura
+            closed_edges: [],
             profile: this.vehicleProfile,
             weights: StorageService.getWeights() 
           };
@@ -233,11 +251,9 @@ export const useDssStore = defineStore('dss', {
             this.baselineStats.duration = bData.total_min || 0;
           }
         } else {
-          // Se non ci sono chiusure, la baseline sarà uguale al percorso calcolato dopo
           this.baselineStats = { distance: 0, duration: 0 };
         }
 
-        // --- 2. CALCOLO PERCORSO REALE ---
         const payload = {
           start_id: this.routing.startPoint.id, 
           end_id: this.routing.endPoint.id,
@@ -253,7 +269,6 @@ export const useDssStore = defineStore('dss', {
           this.routeStats.distance = data.total_km || 0;
           this.routeStats.duration = data.total_min || 0;
           
-          // Se non avevamo chiusure, aggiorna la baseline con i valori appena ottenuti
           if (this.activeClosureIds.length === 0) {
             this.baselineStats = { ...this.routeStats };
           }
@@ -277,7 +292,6 @@ export const useDssStore = defineStore('dss', {
     },
 
     generateMockRoute() {
-      // Mock logic... (resta uguale a prima, ma aggiorna anche la baseline per coerenza)
       const startIdx = this.roadList.findIndex(r => r.id === this.routing.startPoint.id);
       const endIdx = this.roadList.findIndex(r => r.id === this.routing.endPoint.id);
       if (startIdx === -1 || endIdx === -1) return;
@@ -291,7 +305,6 @@ export const useDssStore = defineStore('dss', {
       const multipliers = { light: 1.0, heavy: 1.6, emergency: 0.8 };
       const currentMult = multipliers[this.vehicleProfile] || 1.0;
 
-      // Simuliamo un leggero ritardo se ci sono chiusure nel mock
       const penalty = this.activeClosureIds.length > 0 ? 1.3 : 1.0;
       
       this.routeStats.distance = (mockPath.length * 0.15 * currentMult * penalty).toFixed(1);
@@ -304,7 +317,7 @@ export const useDssStore = defineStore('dss', {
         this.baselineStats = { ...this.routeStats };
       }
       
-      uiStore.showToast(`Simulazione impatto attiva (Backend offline)`, 'info');
+      uiStore.showToast(`Simulazione impatto attiva (Mock)`, 'info');
     }
   }
 });
