@@ -17,6 +17,12 @@ export const useDssStore = defineStore('dss', {
   state: () => ({
     roadList: [], 
     activeClosureIds: [], 
+    
+    // --- NUOVO: History per UNDO/REDO ---
+    closuresHistory: [], 
+    closuresFuture: [],  
+    // ------------------------------------
+
     activeRoutePath: [], 
     routing: { startPoint: null, endPoint: null, activeMode: null },
     routeStats: { distance: 0, duration: 0 },
@@ -27,7 +33,7 @@ export const useDssStore = defineStore('dss', {
     isSidebarOpen: false,
     selectedEdge: null,
     sidebarTimeout: null,
-    printMode: false // <-- NUOVO: Stato Modalità Stampa
+    printMode: false
   }),
 
   getters: {
@@ -65,7 +71,6 @@ export const useDssStore = defineStore('dss', {
       return result;
     },
 
-    // <-- NUOVO: Generatore Turn-by-Turn
     textualItinerary(state) {
       if (!state.activeRoutePath || state.activeRoutePath.length === 0) return [];
       const steps = [];
@@ -85,7 +90,11 @@ export const useDssStore = defineStore('dss', {
         if (index === 0) return `Procedi su ${street}`;
         return `Svolta su ${street}`;
       });
-    }
+    },
+
+    // Getters per abilitare/disabilitare i tasti UI
+    canUndo(state) { return state.closuresHistory.length > 0; },
+    canRedo(state) { return state.closuresFuture.length > 0; }
   },
 
   actions: {
@@ -115,8 +124,19 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
+    // --- LOGICA SALVATAGGIO STATO ---
+    saveHistoryState() {
+      // Salva lo stato attuale prima di modificarlo
+      this.closuresHistory.push([...this.activeClosureIds]);
+      // Se l'utente fa una nuova mossa, perde il futuro (come nei normali editor)
+      this.closuresFuture = [];
+    },
+
     toggleClosure(edge, entireStreet = false) {
       if (!edge || !edge.id) return;
+      
+      this.saveHistoryState(); // Salva per l'Undo
+
       const targetId = String(edge.id);
       let idsToProcess = [targetId];
 
@@ -136,7 +156,31 @@ export const useDssStore = defineStore('dss', {
       this.triggerAutoRecalc();
     },
 
-    // <-- NUOVO: Inversione Rapida
+    // --- NUOVI METODI UNDO/REDO ---
+    undoClosure() {
+      if (this.closuresHistory.length === 0) return;
+      // Salva lo stato attuale nel futuro prima di tornare indietro
+      this.closuresFuture.push([...this.activeClosureIds]);
+      // Ripristina l'ultimo stato salvato
+      this.activeClosureIds = this.closuresHistory.pop();
+      
+      StorageService.saveClosures(this.activeClosureIds);
+      this.triggerAutoRecalc();
+      uiStore.showToast('Azione annullata', 'info');
+    },
+
+    redoClosure() {
+      if (this.closuresFuture.length === 0) return;
+      // Salva lo stato attuale nel passato prima di andare avanti
+      this.closuresHistory.push([...this.activeClosureIds]);
+      // Applica lo stato futuro
+      this.activeClosureIds = this.closuresFuture.pop();
+      
+      StorageService.saveClosures(this.activeClosureIds);
+      this.triggerAutoRecalc();
+      uiStore.showToast('Azione ripristinata', 'info');
+    },
+
     swapRoutePoints() {
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       const temp = this.routing.startPoint;
@@ -145,7 +189,6 @@ export const useDssStore = defineStore('dss', {
       this.triggerAutoRecalc();
     },
 
-    // <-- NUOVO: Sdoppiamento Reset (Percorso vs Cantieri)
     clearRoute() {
       if (this.currentAbortController) this.currentAbortController.abort();
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
@@ -157,6 +200,8 @@ export const useDssStore = defineStore('dss', {
     },
 
     clearClosures() {
+      if (this.activeClosureIds.length === 0) return;
+      this.saveHistoryState(); // Permette di annullare l'azzeramento totale!
       this.activeClosureIds = [];
       StorageService.clearClosures();
       this.triggerAutoRecalc();

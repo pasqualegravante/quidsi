@@ -52,19 +52,12 @@ export default {
       if (!newVal && this.lastSelectedUids.length > 0) this.clearHighlight();
     },
 
-    // --- FIX BUG STAMPA ---
-    // Quando entra in modalità stampa, forza il ricalcolo geometrico
     printMode(newVal) { 
       this.syncPrintMode(newVal); 
       if (newVal && this.map) {
-        // Aspetta 300ms che il CSS in App.vue ridimensioni il div a 12cm
         setTimeout(() => {
-          this.map.invalidateSize(); // Cruciale: dice a Leaflet che il container è cambiato
-          
-          // Aspetta un altro tick per essere sicuri che invalidateSize abbia finito
-          setTimeout(() => {
-            this.fitToScenario(); // Ora calcola lo zoom corretto sul nuovo rettangolo
-          }, 50);
+          this.map.invalidateSize(); 
+          setTimeout(() => { this.fitToScenario(); }, 50);
         }, 300);
       }
     }
@@ -123,7 +116,10 @@ export default {
           },
           style: (feature) => {
             if (feature.properties.isClosed) return { color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 };
-            if (feature.properties.isRoutePath) return { color: '#10b981', weight: 7, opacity: 1 };
+            
+            // MODIFICA QUI: Aggiunto className 'route-ant-path' per innescare l'animazione CSS
+            if (feature.properties.isRoutePath) return { color: '#10b981', weight: 7, opacity: 1, className: 'route-ant-path' };
+            
             const baseOpacity = this.printMode ? 0.1 : 0.6;
             return { color: feature.properties.sensouni === 1 ? '#3b82f6' : '#94a3b8', weight: 3, opacity: baseOpacity };
           },
@@ -166,13 +162,10 @@ export default {
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
 
-    // --- LOGICA ZOOM SMART ---
     fitToScenario() {
       if (!this.graphLayer) return;
       const bounds = L.latLngBounds([]);
       let hasPoints = false;
-
-      // Helper per aggiungere layer ai bounds
       const addToBounds = (idList) => {
         idList.forEach(dbId => {
           const id = String(dbId);
@@ -184,18 +177,13 @@ export default {
           });
         });
       };
-
       addToBounds(this.closedEdges);
       addToBounds(this.routePath);
-
       if (this.routeMarkers.start) { bounds.extend(this.routeMarkers.start.getLatLng()); hasPoints = true; }
       if (this.routeMarkers.end) { bounds.extend(this.routeMarkers.end.getLatLng()); hasPoints = true; }
-
       if (hasPoints) {
-        // Usa padding per non avere i punti attaccati ai bordi del foglio
         this.map.fitBounds(bounds, { padding: [30, 30], animate: false, maxZoom: 17 });
       } else {
-        // Fallback: Centro di Trento se non c'è nulla di selezionato
         this.map.setView([46.0665, 11.1216], 15);
       }
     },
@@ -204,7 +192,6 @@ export default {
       if (!this.graphLayer) return;
       Object.values(this.uidIndex).forEach(layer => {
         const props = layer.feature.properties;
-        // In stampa, rendi quasi invisibili gli archi non rilevanti
         if (!props.isRoutePath && !props.isClosed && !this.lastSelectedUids.includes(props._uid)) {
           this.graphLayer.resetStyle(layer);
         }
@@ -262,7 +249,8 @@ export default {
       if (layers.length > 0) {
         requestAnimationFrame(() => {
           const group = L.featureGroup(layers);
-          this.map.fitBounds(group.getBounds(), { paddingBottomRight: [360, 0], paddingTopLeft: [40, 40], maxZoom: 18 });
+          // VOLO FLUIDO AL POSTO DEL SALTO STATICO
+          this.map.flyToBounds(group.getBounds(), { paddingBottomRight: [360, 0], paddingTopLeft: [40, 40], maxZoom: 18, duration: 1.2 });
           this.highlight(layers);
           const props = layers[0].feature.properties;
           this.$emit('select-edge', { uid: props._uid, id: props.uniqueDbId, street: props.desvia, oneWay: props.sensouni, isClosed: !!props.isClosed });
@@ -324,7 +312,7 @@ export default {
 </script>
 
 <style>
-/* CSS originale intatto */
+/* CSS originale dei marker */
 .status-icon-closed { background: #ef4444; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); display: flex; align-items: center; justify-content: center; }
 .status-icon-closed::after { content: ''; display: block; width: 60%; height: 2px; background: white; border-radius: 1px; }
 .custom-map-pin-container { background: none !important; border: none !important; }
@@ -336,6 +324,25 @@ export default {
 .pin-leg { width: 2px; height: 4px; background: white; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 4; }
 .pin-pulse { position: absolute; bottom: -5px; left: 50%; width: 20px; height: 10px; margin-left: -10px; background: rgba(0, 0, 0, 0.2); border-radius: 50%; z-index: 1; animation: pin-shadow-pulse 2s infinite; }
 @keyframes pin-shadow-pulse { 0% { transform: scale(0.5); opacity: 0.5; } 100% { transform: scale(1.5); opacity: 0; } }
+
+/* EFFETTO ANT PATH (Scorrimento Linea) */
+@keyframes ant-path-animation {
+  0% { stroke-dashoffset: 40; }
+  100% { stroke-dashoffset: 0; }
+}
+
+:deep(.route-ant-path) {
+  stroke-dasharray: 10 10 !important;
+  animation: ant-path-animation 1s linear infinite !important;
+}
+
+/* Stampa: Blocchiamo l'animazione per non avere rendering strani su PDF */
+@media print {
+  :deep(.route-ant-path) {
+    animation: none !important;
+    stroke-dasharray: none !important;
+  }
+}
 </style>
 
 <style scoped>
