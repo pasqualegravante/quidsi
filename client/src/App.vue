@@ -68,6 +68,7 @@
 
       <ActiveClosures />
       <MapLegend />
+      <RouteStats />
     </main>
 
     <FullscreenMenu 
@@ -90,10 +91,11 @@ import FullscreenMenu from './components/FullscreenMenu.vue';
 import RoutingWidget from './components/RoutingWidget.vue';
 import MapLegend from './components/MapLegend.vue';
 import ActiveClosures from './components/ActiveClosures.vue';
+import RouteStats from './components/RouteStats.vue';
 
 export default {
   name: 'App',
-  components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures },
+  components: { MapGraph, Sidebar, FullscreenMenu, RoutingWidget, MapLegend, ActiveClosures, RouteStats},
 
   setup() {
     const dssStore = useDssStore();

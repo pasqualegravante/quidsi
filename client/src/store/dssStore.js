@@ -16,10 +16,12 @@ const ERROR_MESSAGES = {
 
 export const useDssStore = defineStore('dss', {
   state: () => ({
-    roadList: [], // Popolata da MapGraph.vue all'avvio
-    activeClosureIds: [], // Array di String (id_arco nativi)
-    activeRoutePath: [], // Array di String (id_arco nativi restituiti da Python)
+    roadList: [], 
+    activeClosureIds: [], 
+    activeRoutePath: [], 
     routing: { startPoint: null, endPoint: null, activeMode: null },
+    // Aggiunte statistiche operative per il percorso
+    routeStats: { distance: 0, duration: 0 },
     mapCursor: 'grab',
     mapFocusId: null,
     currentAbortController: null,
@@ -53,21 +55,19 @@ export const useDssStore = defineStore('dss', {
       const result = [];
       for (const data of Object.values(streetGroups)) {
         if (data.closedSegments.length === data.totalSegments) {
-          // VIA INTERA
           result.push({ 
             id: data.baseId, 
             name: data.streetName,
-            originalName: data.streetName, // <--- Aggiunto
-            isEntireStreet: true           // <--- Aggiunto
+            originalName: data.streetName, 
+            isEntireStreet: true           
           });
         } else {
-          // SINGOLO TRATTO
           data.closedSegments.forEach(segId => {
             result.push({ 
               id: segId, 
               name: `${data.streetName} (Tratto)`,
-              originalName: data.streetName, // <--- Aggiunto
-              isEntireStreet: false          // <--- Aggiunto
+              originalName: data.streetName, 
+              isEntireStreet: false          
             });
           });
         }
@@ -89,7 +89,6 @@ export const useDssStore = defineStore('dss', {
     closeSidebar() {
       this.isSidebarOpen = false;
       if (this.sidebarTimeout) clearTimeout(this.sidebarTimeout);
-      // Timeout per permettere all'animazione CSS di finire prima di svuotare i dati
       this.sidebarTimeout = setTimeout(() => { this.selectedEdge = null; }, 300);
     },
 
@@ -104,38 +103,30 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
-    // Gestione chiusure manuali (Singolo arco o intera via)
     toggleClosure(edge, entireStreet = false) {
       if (!edge || !edge.id) return;
       
       const targetId = String(edge.id);
       let idsToProcess = [targetId];
 
-      // Se l'utente chiede di chiudere/aprire tutta la via, troviamo tutti gli id_arco associati a quel nome
       if (entireStreet && edge.street) {
         idsToProcess = this.roadList
           .filter(r => r.street === edge.street)
           .map(r => String(r.id));
       }
 
-      // FIX APPLICATO: Controlla se ALMENO UNO degli id da processare è attualmente chiuso
       const isCurrentlyClosed = idsToProcess.some(id => this.activeClosureIds.includes(id));
 
       if (isCurrentlyClosed) {
-        // Riapri la strada (Filtra via TUTTI gli ID trovati)
         this.activeClosureIds = this.activeClosureIds.filter(id => !idsToProcess.includes(id));
       } else {
-        // Chiudi la strada (Aggiungi gli ID all'array evitando duplicati)
         const newClosures = new Set([...this.activeClosureIds, ...idsToProcess]);
         this.activeClosureIds = Array.from(newClosures);
       }
 
       StorageService.saveClosures(this.activeClosureIds);
-      
-      // Innesca il ricalcolo automatico se c'è un percorso attivo
       this.triggerAutoRecalc();
 
-      // Aggiorna lo stato visivo della sidebar se è aperta su questo arco
       if (this.selectedEdge && idsToProcess.includes(String(this.selectedEdge.id))) {
         this.selectedEdge.isClosed = this.activeClosureIds.includes(String(this.selectedEdge.id));
       }
@@ -147,6 +138,7 @@ export const useDssStore = defineStore('dss', {
       this.routing = { startPoint: null, endPoint: null, activeMode: null };
       this.activeRoutePath = [];
       this.activeClosureIds = [];
+      this.routeStats = { distance: 0, duration: 0 }; // Reset statistiche
       this.mapCursor = 'grab';
       this.mapFocusId = null;
       StorageService.clearClosures(); 
@@ -155,29 +147,24 @@ export const useDssStore = defineStore('dss', {
 
     triggerAutoRecalc() {
       if (this.activeRoutePath.length === 0) return;
-      // Debounce di 600ms per evitare flood di chiamate API se l'utente clicca velocemente
       setTimeout(() => this.executeDijkstra(), 600);
     },
 
-    // 🚀 MOTORE DI ROUTING (Interazione con Python)
+    // 🚀 MOTORE DI ROUTING (API + Mock)
     async executeDijkstra() {
-      // 1. Controllo base
       if (!this.routing.startPoint || !this.routing.endPoint) return;
       
-      // 2. Validazione Pre-volo: Partenza e Arrivo uguali
       if (this.routing.startPoint.id === this.routing.endPoint.id) {
         uiStore.showToast(ERROR_MESSAGES['VALIDATION_ERROR_SAME_NODE'], 'warning');
         this.activeRoutePath = [];
         return;
       }
 
-      // 3. Setup e pulizia connessioni pendenti
       if (this.currentAbortController) this.currentAbortController.abort();
       this.currentAbortController = new AbortController();
       
       uiStore.setCalculating(true);
       
-      // Costruzione DTO esatto richiesto dai vincoli di sistema
       const payload = {
         start_id: this.routing.startPoint.id, 
         end_id: this.routing.endPoint.id,
@@ -188,38 +175,61 @@ export const useDssStore = defineStore('dss', {
       try {
         const data = await ApiService.calculateRoute(payload, this.currentAbortController.signal);
         
-        // 4. Gestione Risposta Positiva
         if (data && data.success && data.path && data.path.length) {
-          // Assegnazione diretta degli id_arco nativi restituiti da Python
           this.activeRoutePath = data.path; 
+          
+          // Estrai statistiche se il backend le invia, altrimenti fallback zero
+          this.routeStats.distance = data.total_km || 0;
+          this.routeStats.duration = data.total_min || 0;
+
           uiStore.showToast('Percorso ottimale calcolato', 'success');
         } else {
-          // Gestione casi limite (es. Backend restituisce path vuoto)
           this.activeRoutePath = []; 
           uiStore.showToast(ERROR_MESSAGES['NOT_FOUND'], 'warning');
         }
 
       } catch (error) {
-        // 5. Gestione Errori e Traduzione in Toast
-        this.activeRoutePath = []; 
         const errorKey = error.message;
 
-        // Gestione abort volontario
         if (error.name === 'AbortError' || errorKey === 'ABORTED') {
           uiStore.showToast(ERROR_MESSAGES['ABORTED'], 'info');
           return;
         }
 
-        // Gestione server spento (TypeError è tipico di fetch quando fallisce la connessione TCP)
-        if (error instanceof TypeError) {
-           uiStore.showToast(ERROR_MESSAGES['NETWORK_ERROR'], 'error');
-           return;
-        }
+        // 🛠️ MOCK MODE INTERCEPTOR: Se il server è irraggiungibile, simuliamo un percorso
+        if (error instanceof TypeError || errorKey === 'NETWORK_ERROR') {
+          console.warn("[MOCK MODE] Generazione percorso simulato...");
+          
+          // Creazione di un array finto di ID estraendo una "fetta" di strade dal GeoJSON
+          const startIdx = this.roadList.findIndex(r => r.id === this.routing.startPoint.id);
+          const endIdx = this.roadList.findIndex(r => r.id === this.routing.endPoint.id);
+          
+          let mockPath = [];
+          if (startIdx !== -1 && endIdx !== -1) {
+            const minIdx = Math.min(startIdx, endIdx);
+            const maxIdx = Math.max(startIdx, endIdx);
+            // Prende un po' di segmenti adiacenti nell'array (max 20 per non riempire la mappa)
+            mockPath = this.roadList.slice(minIdx, Math.min(minIdx + 20, maxIdx + 1)).map(r => String(r.id));
+            if (!mockPath.includes(String(this.routing.endPoint.id))) mockPath.push(String(this.routing.endPoint.id));
+          } else {
+            mockPath = [this.routing.startPoint.id, this.routing.endPoint.id];
+          }
 
-        // Gestione errori codificati dall'API (400, 404, 500)
-        const msg = ERROR_MESSAGES[errorKey] || ERROR_MESSAGES['GENERIC_ERROR'];
-        uiStore.showToast(msg, 'error');
-        console.error("[DSS Store] Errore Routing:", error);
+          // Rimuoviamo gli ID che sono attualmente chiusi
+          mockPath = mockPath.filter(id => !this.activeClosureIds.includes(id));
+
+          this.activeRoutePath = mockPath;
+          
+          // Statistiche Mock (Inventate in base a quanti segmenti compongono il percorso falso)
+          this.routeStats.distance = (mockPath.length * 0.12).toFixed(1); // Finti 120m per arco
+          this.routeStats.duration = Math.max(1, Math.round(this.routeStats.distance * 2.5));
+
+          uiStore.showToast('Demo Mode: Percorso simulato (Backend offline)', 'info');
+        } else {
+          this.activeRoutePath = []; 
+          const msg = ERROR_MESSAGES[errorKey] || ERROR_MESSAGES['GENERIC_ERROR'];
+          uiStore.showToast(msg, 'error');
+        }
 
       } finally {
         uiStore.setCalculating(false); 

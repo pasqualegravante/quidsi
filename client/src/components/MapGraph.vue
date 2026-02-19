@@ -267,45 +267,6 @@ export default {
         });
       }
     },
-    
-    getters: {
-    activeClosuresObjects(state) {
-      const streetGroups = {};
-
-      state.activeClosureIds.forEach(id => {
-        const road = state.roadList.find(r => String(r.id) === String(id));
-        if (road) {
-          const baseId = id.includes('_') ? id.split('_')[0] : id;
-          const streetName = road.street || `Arco ${baseId}`;
-
-          if (!streetGroups[streetName]) {
-            streetGroups[streetName] = {
-              baseId: baseId,
-              streetName: streetName,
-              closedSegments: [],
-              // Calcola quanti segmenti compongono la via intera
-              totalSegments: state.roadList.filter(r => r.street === streetName).length
-            };
-          }
-          streetGroups[streetName].closedSegments.push(id);
-        }
-      });
-
-      const result = [];
-      for (const data of Object.values(streetGroups)) {
-        // SE LA VIA È TUTTA CHIUSA: passa al puntino il codice base (es. "1040")
-        if (data.closedSegments.length === data.totalSegments) {
-          result.push({ id: data.baseId, name: data.streetName });
-        } else {
-          // SE È CHIUSO SOLO UN TRATTO: passa al puntino il codice del singolo arco (es. "1040_1")
-          data.closedSegments.forEach(segId => {
-            result.push({ id: segId, name: `${data.streetName} (Tratto)` });
-          });
-        }
-      }
-      return result;
-    }
-  },
 
     highlight(target) {
       const layers = Array.isArray(target) ? target : [target];
