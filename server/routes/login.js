@@ -5,20 +5,18 @@ const htmlsanitizer     = require("sanitize-html");
 const jwt               = require("jsonwebtoken");
 const {Users, Accesses} = require("../mongo-schemas");
 
-
 router.get("/", (req, res)=>{
     res.send("login page");
 });
 
-
 router.post("/", retrieveHtmlForm,
     async (req,res)=>{
-        const nickname = htmlsanitizer(res.locals.fields.nickname[0]);
+        const email = htmlsanitizer(res.locals.fields.email[0]);
         const password = res.locals.fields.password[0];
-
-        const user = await Users.findOne({nickname:nickname}).exec();
+        
+        const user = await Users.findOne({email:email}).exec();
         if(!user){
-            return res.status(401).send(`Client error: User '${nickname}' doesn't exist. Try to register.`);
+            return res.status(401).send(`Client error: User '${email}' doesn't exist. Try to register.`);
         }
         
         const is_correct_password = await bcrypt.compare(password, user.password);
@@ -40,7 +38,7 @@ router.post("/", retrieveHtmlForm,
         console.log(token);
         try {
             await Accesses.findOneAndUpdate({user_id:user._id}, {token:token, access_date:Date.now(), ipaddr:req.ip}, {new:true, upsert:true}).exec();
-            //console.log(update_existing_document);
+            //console.log(process.env.COOKIE_TTL);
             res.cookie("session_id", token, {httpOnly:true, maxAge:parseInt(process.env.COOKIE_TTL)}).send("Login successful.");
         } catch (error) {
             console.log(`Error during login;\n${error}`);
