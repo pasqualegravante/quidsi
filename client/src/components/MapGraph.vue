@@ -47,6 +47,12 @@ export default {
 
   watch: {
     closedEdges: { handler(newIds) { this.syncClosures(newIds); }, deep: true },
+    'dssStore.connectedComponents': {
+    handler(newCCs) {
+      this.renderConnectedComponents(newCCs);
+    },
+    deep: true
+  },
     routePath: { handler(newPath) { this.syncRoutePath(newPath); }, deep: true },
     startPoint(newVal) { this.syncMarker('start', newVal); },
     endPoint(newVal) { this.syncMarker('end', newVal); },
@@ -57,6 +63,7 @@ export default {
       setTimeout(() => { if (this.map) this.map.invalidateSize(); }, 300);
       if (!newVal && this.lastSelectedUids.length > 0) this.clearHighlight();
     },
+    
 
     printMode(newVal) { 
       this.syncPrintMode(newVal); 

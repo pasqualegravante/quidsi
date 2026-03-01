@@ -1,42 +1,41 @@
 <template>
   <transition name="slide-right">
     <aside v-if="isOpen" class="sidebar-right">
-      <div class="panel-header">
-        <button class="collapse-btn" @click="$emit('close')">⮞</button>
-      </div>
-
       <div class="panel-content" v-if="selectedEdge">
-        
-        <div class="info-text-block">
-          <p>ID: <strong>{{ selectedEdge.id }}</strong></p>
-          <p>Doppio Senso/Unico: <strong>{{ selectedEdge.oneWay === 1 ? 'Unico' : 'Doppio' }}</strong></p>
-          <p>Limite velocità: <strong>{{ selectedEdge.maxSpeed || '50' }}</strong></p>
-          <p>Parametri stradali: <strong>...</strong></p>
-        </div>
-
         <div class="action-buttons">
-          <button class="btn-green">Riapri Via</button>
-          <button class="btn-green-light">Riapri Tratto</button>
+          <button class="btn-green-light" @click="toggleArco(selectedEdge.id)">
+            {{ isEdgeClosed ? 'Riapri Tratto' : 'Chiudi Tratto' }}
+          </button>
         </div>
-
-        <div class="action-buttons secondary-actions">
-          <button class="btn-dark-blue">Imposta Peso</button>
-          <span class="version-hint">(*) Next Version</span>
-        </div>
-
       </div>
     </aside>
   </transition>
 </template>
 
 <script>
+import { useDssStore } from '../store/dssStore';
+
 export default {
   name: 'SidebarRight',
   props: { isOpen: Boolean, selectedEdge: Object },
-  emits: ['close']
+  emits: ['close'],
+  setup() {
+    const dssStore = useDssStore();
+    return { dssStore };
+  },
+  computed: {
+    isEdgeClosed() {
+      if (!this.selectedEdge) return false;
+      return this.dssStore.activeClosureIds.includes(this.selectedEdge.id);
+    }
+  },
+  methods: {
+    toggleArco(id) {
+      this.dssStore.toggleEdgeStatus(id);
+    }
+  }
 }
 </script>
-
 <style scoped>
 .sidebar-right { position: absolute; top: 60px; right: 0; bottom: 0; width: 280px; background: white; border-left: 1px solid #cbd5e1; z-index: 1000; box-shadow: -4px 0 15px rgba(0,0,0,0.05); border-radius: 16px 0 0 16px; margin-top: 20px; height: calc(100% - 100px); }
 .panel-header { padding: 15px; border-bottom: 1px solid #f1f5f9; }

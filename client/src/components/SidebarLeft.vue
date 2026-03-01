@@ -44,14 +44,14 @@
               <span class="location-icon">📍</span>
               <input type="text" placeholder="Destinazione" readonly />
             </div>
-            <button class="btn-calcola">Calcola</button>
+            <button class="btn-calcola" @click="eseguiCalcolo">Calcola</button>
           </div>
 
           <div v-if="selectedFunction === 'connessione'" class="function-layout">
             <p class="connessione-text">
               quali zone della città vengono isolate da questo scenario di chiusure?
             </p>
-            <button class="btn-calcola">Visualizza</button>
+            <button class="btn-calcola" @click="eseguiCalcolo">Visualizza</button>
           </div>
         </div>
       </div>
@@ -87,7 +87,7 @@
         </div>
         <div class="pane-body">
           <button class="btn-calcola" style="margin-bottom: 15px;">Nuovo scenario</button>
-          </div>
+        </div>
       </div>
 
     </div>
@@ -96,18 +96,39 @@
 
 <script>
 import { useDssStore } from '../store/dssStore';
+import { onMounted } from 'vue';
 
 export default {
   name: 'SidebarLeft',
   setup() {
     const dssStore = useDssStore();
+
+    // Carica gli scenari all'avvio
+    onMounted(() => {
+      dssStore.fetchAllScenarios();
+    });
+
     return { dssStore };
   },
   data() {
     return {
       activeTab: 'funzioni',
-      selectedFunction: 'dijkstra'
+      selectedFunction: 'dijkstra',
+      startPoint: '',
+      endPoint: ''
     };
+  },
+  methods: {
+    eseguiCalcolo() {
+      if (this.selectedFunction === 'dijkstra') {
+        this.dssStore.calculateDijkstra(this.startPoint, this.endPoint);
+      } else if (this.selectedFunction === 'connessione') {
+        this.dssStore.calculateConnessione();
+      }
+    },
+    caricaScenario(id) {
+      this.dssStore.selectScenario(id);
+    }
   }
 }
 </script>
