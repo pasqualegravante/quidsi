@@ -158,7 +158,7 @@ export default {
             const rawStreet = feature.properties.desvia;
             const streetName = (rawStreet && rawStreet.trim() !== '') ? rawStreet : `Tratto Senza Nome (${uniqueId})`;
 
-            // MODIFICATO: Estraiamo il Point_List originale prima della trasformazione Leaflet
+            // Estrazione Point_List originale prima della trasformazione Leaflet
             let edgePointList = [];
             if (feature.geometry && feature.geometry.coordinates) {
               const coords = feature.geometry.type === 'MultiLineString' 
@@ -169,7 +169,6 @@ export default {
             }
 
             feature.properties.uniqueDbId = uniqueId;
-            // Salviamo la reference direttamente
             feature.properties.point_list = edgePointList;
             const uid = String(L.stamp(layer));
             feature.properties._uid = uid;
@@ -190,7 +189,6 @@ export default {
               L.DomEvent.stopPropagation(e);
               if (this.cursor !== 'crosshair') this.highlight(layer);
               
-              // MODIFICATO: Emit include anche le coordinate "point_list"
               this.$emit('select-edge', { 
                 uid: uid, 
                 id: uniqueId, 
@@ -206,7 +204,6 @@ export default {
         this.graphLayer = markRaw(geojson);
         this.graphLayer.addTo(this.map);
 
-        // MODIFICATO: Includiamo anche il point_list nella roadList generata
         this.$emit('graph-loaded', data.features.map(f => {
           const raw = f.properties.desvia;
           const sName = (raw && raw.trim() !== '') ? raw : `Tratto Senza Nome (${f.properties.uniqueDbId})`;
