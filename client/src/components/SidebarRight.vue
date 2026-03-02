@@ -1,10 +1,26 @@
 <template>
   <transition name="slide-right">
-    <aside v-if="isOpen" class="sidebar-right">
-      <div class="panel-content" v-if="selectedEdge">
+    <aside v-if="isOpen && selectedEdge" class="sidebar-right">
+      <div class="panel-header">
+        <button class="collapse-btn" @click="$emit('close')">⮞</button>
+      </div>
+
+      <div class="panel-content">
+        <div class="info-text-block">
+          <p><strong>ID:</strong> <span>{{ selectedEdge.id }}</span></p>
+          <p><strong>Via:</strong> <span>{{ selectedEdge.street }}</span></p>
+        </div>
+
         <div class="action-buttons">
-          <button class="btn-green-light" @click="toggleArco(selectedEdge.id)">
-            {{ isEdgeClosed ? 'Riapri Tratto' : 'Chiudi Tratto' }}
+          <button v-if="isStreetPartiallyClosed" class="btn-green" @click="handleStreet(false)">
+            Riapri VIA
+          </button>
+          <button v-else class="btn-red" @click="handleStreet(true)">
+            Chiudi VIA
+          </button>
+          
+          <button :class="isEdgeClosed ? 'btn-green-light' : 'btn-red-light'" @click="toggleArco(selectedEdge.id)">
+            {{ isEdgeClosed ? 'Apri Tratto' : 'Chiudi Tratto' }}
           </button>
         </div>
       </div>
@@ -17,42 +33,55 @@ import { useDssStore } from '../store/dssStore';
 
 export default {
   name: 'SidebarRight',
-  props: { isOpen: Boolean, selectedEdge: Object },
+  // Definizione fondamentale delle props per ricevere dati da App.vue
+  props: {
+    isOpen: Boolean,
+    selectedEdge: Object
+  },
   emits: ['close'],
   setup() {
     const dssStore = useDssStore();
     return { dssStore };
   },
   computed: {
+    // Verifica se il singolo tratto è nell'elenco delle chiusure dello store [cite: 401]
     isEdgeClosed() {
-      if (!this.selectedEdge) return false;
       return this.dssStore.activeClosureIds.includes(this.selectedEdge.id);
+    },
+    // Verifica se almeno un segmento della via è chiuso per mostrare "Riapri VIA" [cite: 397]
+    isStreetPartiallyClosed() {
+      return this.dssStore.allEdges
+        .filter(e => e.street === this.selectedEdge.street)
+        .some(e => this.dssStore.activeClosureIds.includes(e.id));
     }
   },
   methods: {
     toggleArco(id) {
-      this.dssStore.toggleEdgeStatus(id);
+      this.dssStore.toggleEdgeStatus(id); // Chiama POST /edge/toggle [cite: 198, 401]
+    },
+    handleStreet(shouldClose) {
+      this.dssStore.toggleStreetStatus(this.selectedEdge.street, shouldClose); // [cite: 397]
     }
   }
 }
 </script>
+
 <style scoped>
-.sidebar-right { position: absolute; top: 60px; right: 0; bottom: 0; width: 280px; background: white; border-left: 1px solid #cbd5e1; z-index: 1000; box-shadow: -4px 0 15px rgba(0,0,0,0.05); border-radius: 16px 0 0 16px; margin-top: 20px; height: calc(100% - 100px); }
-.panel-header { padding: 15px; border-bottom: 1px solid #f1f5f9; }
-.collapse-btn { background: #e2e8f0; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-weight: bold; }
-
-.panel-content { padding: 25px 20px; }
-.info-text-block { font-family: 'Times New Roman', serif; font-size: 14px; color: #333; line-height: 1.8; margin-bottom: 30px; }
-.info-text-block p { margin: 0; border-bottom: 1px dotted #ccc; display: flex; justify-content: space-between; }
-
-.action-buttons { display: flex; flex-direction: column; gap: 15px; margin-bottom: 30px; }
-.btn-green { background: #86efac; border: 1px solid #22c55e; padding: 12px; border-radius: 20px; font-weight: bold; color: #14532d; cursor: pointer; text-align: center; }
-.btn-green-light { background: #bbf7d0; border: 1px solid #4ade80; padding: 12px; border-radius: 20px; font-weight: bold; color: #166534; cursor: pointer; text-align: center; }
-.btn-dark-blue { background: #0f172a; border: none; padding: 12px; border-radius: 20px; font-weight: bold; color: white; cursor: pointer; text-align: center; }
-
-.secondary-actions { align-items: center; }
-.version-hint { font-size: 11px; color: #64748b; }
+/* Stili per allineamento al mockup grafico [cite: 382] */
+.sidebar-right { 
+  position: absolute; top: 80px; right: 20px; width: 280px; 
+  background: white; border-radius: 16px; padding: 20px;
+  box-shadow: -5px 0 20px rgba(0,0,0,0.1); z-index: 1100;
+}
+.panel-header { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.collapse-btn { background: none; border: none; font-size: 20px; cursor: pointer; }
+.info-text-block p { display: flex; justify-content: space-between; border-bottom: 1px dotted #ccc; margin: 10px 0; }
+.action-buttons { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
+.btn-red { background: #ef4444; color: white; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
+.btn-green { background: #22c55e; color: white; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
+.btn-red-light { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 8px; border: 1px solid #ef4444; cursor: pointer; font-weight: bold; }
+.btn-green-light { background: #dcfce7; color: #166534; padding: 12px; border-radius: 8px; border: 1px solid #22c55e; cursor: pointer; font-weight: bold; }
 
 .slide-right-enter-active, .slide-right-leave-active { transition: transform 0.3s ease; }
-.slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); }
+.slide-right-enter-from, .slide-right-leave-to { transform: translateX(120%); }
 </style>

@@ -1,98 +1,132 @@
 import { defineStore } from 'pinia';
-import { ApiService } from '../services/api'; // Il file api.js aggiornato prima
+import { ApiService } from '../services/api'; 
 import { uiStore } from './uiStore';
 
 export const useDssStore = defineStore('dss', {
   state: () => ({
-    uid: 'ID_UTENTE_ATTUALE', // In produzione deriverà dal JWT del login [cite: 74-75]
-    currentScenarioId: null,
-    scenariosList: [],
-    
-    // Stato del grafo mimato dal server 
-    activeClosureIds: [], 
+    uid: 'ID_USER_01', // Identificativo utente per le sessioni
+    scenarios: [],     // Lista di tutti gli scenari dell'utente
+    activeScenario: null,
+    activeClosureIds: [], // Mima il grafo presente sul server
+    connectedComponents: [], // CCS: [[edge], [edge]]
     dijkstraPath: [],
-    connectedComponents: [], // Array di array di archi [cite: 195]
-    
     selectedEdge: null,
-    mapFocusId: null
+    isModified: false, // Flag per modifiche non salvate
+    allEdges: [],      // Indice locale per filtri (es. ricerca per via)
+    alfa: 0.5,         // Peso per la formula weight(X)
   }),
 
+  getters: {
+    // Filtra gli oggetti arco completi partendo dagli ID chiusi
+    activeClosuresObjects: (state) => {
+      return state.allEdges.filter(e => state.activeClosureIds.includes(e.id));
+    }
+  },
+
   actions: {
-    // --- GESTIONE SCENARI ---
+    /**
+     * GESTIONE SCENARI
+     */
     async fetchAllScenarios() {
-      try {
-        uiStore.isCalculating = true;
-        const res = await ApiService.getAllScenarios(this.uid);
-        this.scenariosList = res.scenarios; // [cite: 125-127]
-      } catch (error) {
-        console.error("Errore recupero scenari", error);
-      } finally {
-        uiStore.isCalculating = false;
-      }
+      const res = await ApiService.getAllScenarios(this.uid); //
+      this.scenarios = res.scenarios;
     },
 
     async selectScenario(scen_id) {
-      try {
-        uiStore.isCalculating = true;
-        const res = await ApiService.selectScenario(this.uid, scen_id);
-        this.currentScenarioId = res.scenario.id;
-        // Il client ridisegna il grafo ricolorando gli archi rimossi indicati [cite: 140]
-        this.activeClosureIds = res.scenario.closed_segments || [];
-        this.dijkstraPath = []; // Reset calcoli precedenti
-        this.connectedComponents = [];
-      } catch (error) {
-        console.error("Errore selezione scenario", error);
-      } finally {
-        uiStore.isCalculating = false;
+      // Verifica se salvare prima di cambiare scenario
+      if (this.isModified) {
+        if (!confirm("Hai modifiche non salvate. Salvare prima di cambiare?")) {
+           // Se l'utente preme "Scarta", procediamo comunque resettando
+        } else {
+           await this.saveCurrentScenario();
+        }
+      }
+      
+      const res = await ApiService.selectScenario(this.uid, scen_id); //
+      this.activeScenario = res.scenario; //
+      this.activeClosureIds = res.scenario.closed_segments || []; //
+      this.alfa = res.scenario.alfa || 0.5; //
+      this.isModified = false;
+      this.connectedComponents = []; // Reset calcoli precedenti
+      this.dijkstraPath = [];
+    },
+
+    async saveCurrentScenario() {
+      if (!this.activeScenario) return;
+      const res = await ApiService.saveScenario(this.uid, this.activeScenario.id); //
+      if (res.saved) {
+        this.isModified = false; //
+        uiStore.showToast("Scenario salvato con successo!");
       }
     },
 
-    // --- FUNZIONI ALGORITMICHE ---
-    async calculateDijkstra(startNode, endNode) {
-      try {
-        uiStore.isCalculating = true;
-        const res = await ApiService.calculateDijkstra(this.uid, this.currentScenarioId, { startNode, endNode });
-        this.dijkstraPath = res.edges; // [cite: 177-179]
-      } catch (error) {
-        console.error("Errore Dijkstra", error);
-      } finally {
-        uiStore.isCalculating = false;
+    async duplicateScenario(scen_id) {
+      // Chiede il salvataggio prima della duplicazione
+      if (this.isModified) {
+        if (confirm("Salvare le modifiche attuali prima di duplicare?")) {
+          await this.saveCurrentScenario();
+        }
       }
+      const res = await ApiService.duplicateScenario(this.uid, scen_id); //
+      if (res.scen) {
+        await this.fetchAllScenarios();
+        uiStore.showToast("Scenario duplicato!");
+      }
+    },
+
+    /**
+     * GESTIONE GRAFO (TRATTI E VIE)
+     */
+    async toggleEdgeStatus(edgeId) {
+      // Chiamata all'endpoint unico di toggle
+      const res = await ApiService.toggleEdge(this.uid, this.activeScenario.id, edgeId);
+      if (res.toggled) {
+        this.isModified = true; //
+        const idx = this.activeClosureIds.indexOf(edgeId);
+        if (idx > -1) this.activeClosureIds.splice(idx, 1); // Riapri
+        else this.activeClosureIds.push(edgeId); // Chiudi
+      }
+    },
+
+    // Funzione massiva per "Chiudi/Riapri VIA"
+    async toggleStreetStatus(streetName, forceClose) {
+      // 1. Individua tutti i segmenti (archi) della via selezionata
+      const streetSegments = this.allEdges.filter(e => e.street === streetName);
+      
+      for (const segment of streetSegments) {
+        const isCurrentlyClosed = this.activeClosureIds.includes(segment.id);
+        
+        // Esegue l'azione solo se lo stato attuale non corrisponde a quello desiderato
+        if ((forceClose && !isCurrentlyClosed) || (!forceClose && isCurrentlyClosed)) {
+          await this.toggleEdgeStatus(segment.id);
+        }
+      }
+    },
+
+    /**
+     * FUNZIONI ALGORITMICHE
+     */
+    async calculateDijkstra(start, end) {
+      uiStore.isCalculating = true;
+      try {
+        // Calcola il percorso minimo considerando il peso alfa
+        const res = await ApiService.calculateDijkstra(this.uid, this.activeScenario.id, { 
+          start, 
+          end, 
+          alfa: this.alfa 
+        });
+        this.dijkstraPath = res.edges; //
+      } finally { uiStore.isCalculating = false; }
     },
 
     async calculateConnessione() {
+      uiStore.isCalculating = true;
       try {
-        uiStore.isCalculating = true;
-        const res = await ApiService.calculateConnectedComponents(this.uid, this.currentScenarioId);
-        // Il client riceve un array di array di archi (le componenti connesse) [cite: 195]
-        this.connectedComponents = res.CCS; // [cite: 192, 193]
-      } catch (error) {
-        console.error("Errore Connessione", error);
-      } finally {
-        uiStore.isCalculating = false;
-      }
-    },
-
-    // --- GESTIONE ARCHI ---
-    async toggleEdgeStatus(edgeId) {
-      try {
-        uiStore.isCalculating = true;
-        const res = await ApiService.toggleEdge(this.uid, this.currentScenarioId, edgeId);
-        
-        // Il client legge toggled e ridisegna il grafo se true [cite: 209]
-        if (res.toggled) {
-          const index = this.activeClosureIds.indexOf(edgeId);
-          if (index > -1) {
-            this.activeClosureIds.splice(index, 1); // Riapri
-          } else {
-            this.activeClosureIds.push(edgeId); // Chiudi
-          }
-        }
-      } catch (error) {
-        console.error("Errore toggle arco", error);
-      } finally {
-        uiStore.isCalculating = false;
-      }
+        // Calcola le componenti isolate dallo scenario di chiusure
+        const res = await ApiService.calculateConnectedComponents(this.uid, this.activeScenario.id);
+        this.connectedComponents = res.CCS; // [[edge]]
+        uiStore.showToast(`Trovate ${res.num_of_ccs} aree isolate.`); //
+      } finally { uiStore.isCalculating = false; }
     }
   }
 });
