@@ -7,7 +7,7 @@
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 export const ApiService = {
-  
+
   async createScenario(uid) {
     await delay(500);
     console.log(`[MOCK API] POST /scenario/new per uid: ${uid}`);
@@ -28,12 +28,12 @@ export const ApiService = {
   async selectScenario(uid, scen_id) {
     await delay(400);
     console.log(`[MOCK API] POST /scenario/select -> ${scen_id}`);
-    return { 
-      scenario: { 
-        id: scen_id, 
-        label: 'Scenario Selezionato', 
+    return {
+      scenario: {
+        id: scen_id,
+        label: 'Scenario Selezionato',
         closed_segments: ['1040_1'] // Simuliamo che ci sia un arco chiuso
-      } 
+      }
     };
   },
 
@@ -53,19 +53,29 @@ export const ApiService = {
     await delay(800);
     console.log(`[MOCK API] POST /scenario/djk -> Calcolo Dijkstra`);
     // Simuliamo la restituzione di un percorso (inserisci ID di archi reali del tuo GeoJSON)
-    return { edges: ['1040_1', '1041_1', '1042_1'] }; 
+    return { edges: ['1040_1', '1041_1', '1042_1'] };
   },
 
   async calculateConnectedComponents(uid, scen_id) {
     await delay(1000);
     console.log(`[MOCK API] POST /scenario/cc -> Calcolo componenti connesse`);
     // Restituisce un array di componenti connesse (ognuna è un array di archi)
-    return { 
-      num_of_ccs: 2, 
+    return {
+      num_of_ccs: 2,
       CCS: [
         ['1040_1', '1041_1'], // Area isolata 1
         ['1090_1']            // Area isolata 2
-      ] 
+      ]
     };
-  }
+  },
+  // Aggiungi questo metodo ad ApiService in api_server.js e api.js
+  async updateScenario(uid, scen_id, data) {
+    // data può contenere { label, description }
+    const res = await fetch(`${API_BASE_URL}/scenario/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, scen_id, ...data })
+    });
+    return await res.json(); // Risposta attesa: { updated: boolean }
+  },
 };

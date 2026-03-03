@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ApiService } from '../services/api'; 
+import { ApiService } from '../services/api';
 import { uiStore } from './uiStore';
 
 export const useDssStore = defineStore('dss', {
@@ -8,14 +8,14 @@ export const useDssStore = defineStore('dss', {
     scenarios: [],
     activeScenario: null,
     activeClosureIds: [],
-    connectedComponents: [], 
+    connectedComponents: [],
     dijkstraPath: [],
     selectedEdge: null,
     isModified: false,
     allEdges: [],
     alfa: 0.5,
-    poiList: [], 
-    routingStartPoint: null, 
+    poiList: [],
+    routingStartPoint: null,
     routingEndPoint: null,
     selectionMode: null, // 'start' | 'end' | null
     mapFocusId: null
@@ -36,9 +36,9 @@ export const useDssStore = defineStore('dss', {
     async selectScenario(scen_id) {
       if (this.isModified) {
         if (!confirm("Hai modifiche non salvate. Salvare prima di cambiare?")) {
-           // Scarta
+          // Scarta
         } else {
-           await this.saveCurrentScenario();
+          await this.saveCurrentScenario();
         }
       }
       const res = await ApiService.selectScenario(this.uid, scen_id);
@@ -73,6 +73,23 @@ export const useDssStore = defineStore('dss', {
         uiStore.showToast("Scenario duplicato!");
       }
     },
+    async updateScenarioInfo(scen_id, label, description) {
+      try {
+        uiStore.isCalculating = true;
+        const res = await ApiService.updateScenario(this.uid, scen_id, { label, description });
+        if (res.updated) {
+          // Aggiorna localmente la lista per riflettere il cambio
+          const scen = this.scenarios.find(s => s.id === scen_id);
+          if (scen) {
+            scen.label = label;
+            scen.description = description;
+          }
+          uiStore.showToast("Scenario aggiornato!");
+        }
+      } finally {
+        uiStore.isCalculating = false;
+      }
+    },
 
     async deleteScenario(scen_id) {
       const res = await ApiService.deleteScenario(this.uid, scen_id);
@@ -105,14 +122,14 @@ export const useDssStore = defineStore('dss', {
     setSelectionMode(mode) {
       this.selectionMode = this.selectionMode === mode ? null : mode;
     },
-    
+
     setRoutingPoint(edgePayload) {
       if (this.selectionMode === 'start') {
         this.routingStartPoint = edgePayload;
       } else if (this.selectionMode === 'end') {
         this.routingEndPoint = edgePayload;
       }
-      this.selectionMode = null; 
+      this.selectionMode = null;
     },
 
     async calculateDijkstra(startId, endId) {

@@ -7,7 +7,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
 export const ApiService = {
-  
+
   // ==========================================
   // GESTIONE SCENARI
   // ==========================================
@@ -55,7 +55,7 @@ export const ApiService = {
   // 5. Duplica uno scenario esistente [cite: 103, 104]
   async duplicateScenario(uid, scenario_id) {
     const res = await fetch(`${API_BASE_URL}/scenario/duplicate`, {
-      method: 'POST', 
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid, scenario: scenario_id }) // [cite: 106-108]
     });
@@ -82,7 +82,7 @@ export const ApiService = {
     const res = await fetch(`${API_BASE_URL}/scenario/djk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid, scen_id, ...extraPayload }) 
+      body: JSON.stringify({ uid, scen_id, ...extraPayload })
     });
     return await res.json(); // Risposta attesa: { edges: [edge] } [cite: 177-179]
   },
@@ -107,7 +107,7 @@ export const ApiService = {
     const res = await fetch(`${API_BASE_URL}/edge/toggle`, {
       method: 'POST', // [cite: 197]
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid, scen_id, edge: edgeId }) 
+      body: JSON.stringify({ uid, scen_id, edge: edgeId })
     });
     return await res.json(); // Risposta attesa: { toggled: boolean } [cite: 206-208]
   },
@@ -126,10 +126,19 @@ export const ApiService = {
   async toggleNode(uid, scen_id, nodeId) {
     // Come per gli archi, aggiungo il nodeId al payload per necessità logica
     const res = await fetch(`${API_BASE_URL}/node/toggle`, {
-      method: 'POST', 
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ uid, scen_id, node: nodeId }) // [cite: 234-236]
     });
     return await res.json(); // Risposta attesa: { toggled: boolean } [cite: 239-241]
-  }
+  },
+  async updateScenario(uid, scen_id, data) {
+    // data può contenere { label, description }
+    const res = await fetch(`${API_BASE_URL}/scenario/update`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid, scen_id, ...data })
+    });
+    return await res.json(); // Risposta attesa: { updated: boolean }
+  },
 };
