@@ -1,6 +1,6 @@
 <template>
   <div id="app" class="dss-layout">
-    <div v-if="uiStore.isCalculating" class="global-overlay">
+    <div v-if="uiStore && uiStore.isCalculating" class="global-overlay">
       <div class="spinner">Calcolo in corso...</div>
     </div>
     
@@ -12,9 +12,13 @@
       <div class="map-container">
         <MapGraph 
           :closedEdges="dssStore.activeClosureIds"
+          :focusEdgeId="dssStore.mapFocusId"
+          :cursor="dssStore.selectionMode ? 'crosshair' : 'grab'"
+          :startPoint="dssStore.routingStartPoint"
+          :endPoint="dssStore.routingEndPoint"
           @select-edge="handleEdgeSelect"
         />
-        <MapLegend :connectedComponents="dssStore.connectedComponents" />
+        <MapLegend />
       </div>
 
       <SidebarRight 
@@ -49,10 +53,13 @@ export default {
   },
   methods: {
     handleEdgeSelect(edge) {
-      // 1. Memorizza l'arco selezionato nello Store globale
-      this.dssStore.selectedEdge = edge;
-      // 2. Attiva la visibilità della sidebar destra [cite: 382]
-      this.isRightSidebarOpen = true;
+      // Se stiamo selezionando A o B, invia allo store. Altrimenti apri info.
+      if (this.dssStore.selectionMode) {
+        this.dssStore.setRoutingPoint(edge);
+      } else {
+        this.dssStore.selectedEdge = edge;
+        this.isRightSidebarOpen = true;
+      }
     }
   }
 };
@@ -67,6 +74,6 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-ser
 .global-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(15, 23, 42, 0.7); display: flex; justify-content: center;
-  align-items: center; z-index: 9999; color: white;
+  align-items: center; z-index: 9999; color: white; font-weight: bold;
 }
 </style>

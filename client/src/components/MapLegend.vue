@@ -1,32 +1,35 @@
 <template>
-  <div class="map-legend">
-    <div class="legend-header">LEGENDA RETE</div>
-    <div class="legend-body">
-      <div class="legend-item"><span class="line route"></span><span class="label">Percorso Ottimale</span></div>
-      <div class="legend-item"><span class="line closed"></span><span class="label">Tratto Interrotto</span></div>
-      <div class="legend-item"><span class="line selected"></span><span class="label">Strada Selezionata</span></div>
-      <div class="legend-item"><span class="line oneway"></span><span class="label">Senso Unico</span></div>
-      <div class="legend-item"><span class="line twoway"></span><span class="label">Doppio Senso</span></div>
+  <div class="legenda-minimale">
+    <div class="legenda-content">
+      <span class="item"><i class="blue"></i> Rete Stradale</span>
+      <span class="item"><i class="red"></i> Tratto Interrotto</span>
+      <span class="item"><i class="green"></i> Percorso Dijkstra</span>
+      <span v-if="dssStore.connectedComponents && dssStore.connectedComponents.length" class="item">
+        <i class="multi"></i> Aree Isolate
+      </span>
     </div>
   </div>
 </template>
 
 <script>
+import { useDssStore } from '../store/dssStore';
+
 export default {
-  name: 'MapLegend'
+  name: 'MapLegend',
+  setup() {
+    const dssStore = useDssStore();
+    return { dssStore };
+  }
 }
 </script>
 
 <style scoped>
-.map-legend { position: absolute; bottom: 30px; right: 20px; background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(8px); padding: 12px; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.15); border: 1px solid rgba(226, 232, 240, 0.8); z-index: 1010; width: auto; min-width: 160px; pointer-events: none; }
-.legend-header { font-size: 10px; font-weight: 900; color: #64748b; letter-spacing: 1.2px; margin-bottom: 8px; text-transform: uppercase; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px; }
-.legend-body { display: flex; flex-direction: column; gap: 8px; }
-.legend-item { display: flex; align-items: center; gap: 12px; }
-.label { font-size: 11px; font-weight: 700; color: #1e293b; }
-.line { width: 20px; height: 4px; border-radius: 2px; flex-shrink: 0; }
-.route { background: #10b981; height: 5px; }
-.closed { background: #ef4444; border: 1px dashed white; }
-.selected { background: #f59e0b; height: 5px; }
-.oneway { background: #3b82f6; }
-.twoway { background: #94a3b8; }
+.legenda-minimale { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.9); color: white; padding: 12px 30px; border-radius: 8px; z-index: 1000; font-size: 11px; font-weight: bold; text-transform: uppercase; border: 1px solid #334155; }
+.legenda-content { display: flex; gap: 20px; }
+.item { display: flex; align-items: center; }
+.item i { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; }
+.blue { background: #3b82f6; }
+.red { background: #ef4444; border: 1px dashed white; }
+.green { background: #10b981; }
+.multi { background: linear-gradient(45deg, #f472b6, #8b5cf6, #06b6d4); }
 </style>
