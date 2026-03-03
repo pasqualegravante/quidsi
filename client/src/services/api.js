@@ -68,14 +68,9 @@ export const ApiService = {
       ]
     };
   },
-  // Aggiungi questo metodo ad ApiService in api_server.js e api.js
-  async updateScenario(uid, scen_id, data) {
-    // data può contenere { label, description }
-    const res = await fetch(`${API_BASE_URL}/scenario/update`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ uid, scen_id, ...data })
-    });
-    return await res.json(); // Risposta attesa: { updated: boolean }
+  async updateScenario(uid, scen_id, payload) {
+    await delay(400);
+    console.log(`[MOCK API] POST /scenario/update -> ${scen_id}`, payload);
+    return { updated: true };
   },
 };

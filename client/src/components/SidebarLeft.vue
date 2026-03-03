@@ -23,6 +23,7 @@
           </div>
 
           <div v-if="selectedFunction === 'dijkstra'" class="function-layout">
+            
             <div 
               class="input-with-icon clickable-input" 
               :class="{ 'active-selection': dssStore.selectionMode === 'start' }"
@@ -42,6 +43,15 @@
               <span class="location-icon">📍</span>
               <div :class="['fake-input', { 'filled': dssStore.routingEndPoint }]">
                 {{ dssStore.routingEndPoint ? dssStore.routingEndPoint.street : 'Clicca per Destinazione (B)' }}
+              </div>
+            </div>
+
+            <div class="alfa-controller">
+              <label>Parametro Alfa: <strong>{{ dssStore.alfa.toFixed(1) }}</strong></label>
+              <input type="range" min="0" max="1" step="0.1" v-model.number="dssStore.alfa" class="alfa-slider" />
+              <div class="alfa-labels">
+                <span>Distanza</span>
+                <span>Tempo</span>
               </div>
             </div>
 
@@ -89,13 +99,14 @@
         
         <div class="pane-body">
           <div class="search-scenario-bar">
-            <input type="text" v-model="filterScenario" placeholder="BARRA DI RICERCA SCENARIO" class="scenario-search-input" />
+            <input type="text" v-model="filterScenario" placeholder="Cerca scenario..." class="scenario-search-input" />
             <button class="btn-new-inline" @click="dssStore.createScenario">Nuovo scenario</button>
           </div>
 
           <ul class="scenario-list">
             <li v-for="scen in filteredScenarios" :key="scen.id" class="scenario-row">
               <div class="scenario-main-info">
+                
                 <div v-if="editingScenId !== scen.id">
                   <span class="scen-label">
                     {{ scen.label }} 
@@ -108,17 +119,18 @@
 
                 <div v-else class="edit-mode-container">
                   <input v-model="editLabel" class="edit-input" placeholder="Nome scenario" />
-                  <textarea v-model="editDesc" class="edit-textarea" placeholder="Aggiungi una descrizione..."></textarea>
+                  <textarea v-model="editDesc" class="edit-textarea" placeholder="Descrizione..."></textarea>
                   <div class="edit-actions">
-                    <button class="btn-save-sm" @click="saveInfo(scen.id)">Salva</button>
                     <button class="btn-cancel-sm" @click="cancelEdit">Annulla</button>
+                    <button class="btn-save-sm" @click="saveInfo(scen.id)">Salva</button>
                   </div>
                 </div>
+
               </div>
               
               <div class="scenario-actions" v-if="editingScenId !== scen.id">
-                <button @click="startEdit(scen)" title="Modifica">✏️</button>
-                <button @click="dssStore.selectScenario(scen.id)" title="Seleziona">📂</button>
+                <button @click="startEdit(scen)" title="Modifica Nome">✏️</button>
+                <button @click="dssStore.selectScenario(scen.id)" title="Seleziona e Carica">📂</button>
                 <button @click="dssStore.duplicateScenario(scen.id)" title="Duplica">📋</button>
                 <button @click="openDeleteModal(scen)" title="Elimina">🗑️</button>
               </div>
@@ -159,7 +171,8 @@ export default {
       filterScenario: '',
       showDeleteModal: false,
       scenarioToDelete: null,
-      // Stati per editing metadati
+      
+      // Stati per Editing
       editingScenId: null,
       editLabel: '',
       editDesc: ''
@@ -181,7 +194,8 @@ export default {
         this.dssStore.calculateConnessione();
       }
     },
-    // Gestione Editing
+    
+    // Metodi Editing
     startEdit(scen) {
       this.editingScenId = scen.id;
       this.editLabel = scen.label;
@@ -194,7 +208,8 @@ export default {
       await this.dssStore.updateScenarioInfo(id, this.editLabel, this.editDesc);
       this.editingScenId = null;
     },
-    // Gestione Eliminazione
+
+    // Metodi Eliminazione
     openDeleteModal(scen) {
       this.scenarioToDelete = scen;
       this.showDeleteModal = true;
@@ -211,7 +226,6 @@ export default {
 </script>
 
 <style scoped>
-/* Layout e Tab */
 .sidebar-left-wrapper { display: flex; height: 100%; background: #f8fafc; border-right: 1px solid #cbd5e1; z-index: 1000; position: relative; }
 .vertical-tabs { display: flex; flex-direction: column; width: 45px; background: #e2e8f0; border-right: 1px solid #cbd5e1; }
 .tab-btn { writing-mode: vertical-rl; transform: rotate(180deg); padding: 20px 10px; cursor: pointer; border: none; background: transparent; font-weight: bold; color: #475569; border-left: 3px solid transparent; transition: 0.2s; letter-spacing: 1px; }
@@ -224,7 +238,6 @@ export default {
 .collapse-btn { background: #e2e8f0; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-weight: bold; }
 .pane-body { padding: 20px; flex: 1; overflow-y: auto; }
 
-/* Funzioni e Point&Snap */
 .dropdown-group { border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; margin-bottom: 25px; }
 .dropdown-group label { display: block; font-size: 10px; color: #64748b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;}
 .custom-select { width: 100%; border: none; outline: none; background: transparent; font-weight: bold; color: #0f172a; cursor: pointer; font-size: 14px;}
@@ -235,14 +248,20 @@ export default {
 .active-selection { border-color: #f59e0b !important; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2); background: #fffbeb !important; }
 .fake-input { margin-left: 10px; width: 100%; font-size: 13px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: 'Inter', sans-serif;}
 .fake-input.filled { color: #0f172a; font-weight: bold; }
-
 .location-icon { font-size: 16px; }
+
+/* Controller Alfa */
+.alfa-controller { margin: 25px 0 15px 0; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
+.alfa-controller label { display: block; font-size: 11px; color: #475569; margin-bottom: 8px; }
+.alfa-controller label strong { color: #2563eb; }
+.alfa-slider { width: 100%; cursor: pointer; }
+.alfa-labels { display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-top: 5px; font-weight: bold; text-transform: uppercase; }
+
 .btn-calcola { width: 100%; background: #e2e8f0; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; font-weight: bold; color: #1e293b; cursor: pointer; margin-top: 10px; transition: 0.2s; }
-.btn-calcola:hover { background: #cbd5e1; }
+.btn-calcola:hover:not(:disabled) { background: #cbd5e1; }
 .btn-calcola:disabled { opacity: 0.5; cursor: not-allowed; }
 .connessione-text { text-align: center; font-size: 13px; color: #334155; line-height: 1.5; margin: 30px 0; }
 
-/* Interventi */
 .interventi-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .intervento-item { display: flex; align-items: center; justify-content: space-between; border: 1px solid #cbd5e1; padding: 8px 12px; border-radius: 4px; background: white; }
 .intervento-info { font-size: 11px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; }
@@ -253,7 +272,6 @@ export default {
 .delete-btn:hover { background: #0f172a; }
 .empty-state { font-size: 12px; color: #64748b; text-align: center; margin-top: 20px; }
 
-/* Archivio e Scenario Row */
 .search-scenario-bar { margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px; }
 .scenario-search-input { width: 100%; padding: 12px 15px; border-radius: 20px; border: 1px solid #cbd5e1; box-sizing: border-box; font-family: 'Inter', sans-serif; font-size: 12px; outline: none; }
 .scenario-search-input:focus { border-color: #2563eb; }
@@ -275,10 +293,9 @@ export default {
 .edit-input { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #2563eb; font-weight: bold; outline: none; font-size: 13px; font-family: 'Inter', sans-serif; }
 .edit-textarea { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #cbd5e1; font-size: 11px; resize: none; height: 60px; outline: none; font-family: 'Inter', sans-serif; }
 .edit-actions { display: flex; gap: 10px; justify-content: flex-end; }
-.btn-save-sm { background: #2563eb; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; }
-.btn-cancel-sm { background: transparent; border: 1px solid #cbd5e1; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.btn-save-sm { background: #2563eb; color: white; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+.btn-cancel-sm { background: transparent; border: 1px solid #cbd5e1; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
 
-/* Modal */
 .dss-modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15,23,42,0.85); display: flex; justify-content: center; align-items: center; z-index: 5000; }
 .dss-modal { background: #0f172a; color: white; padding: 30px; border-radius: 12px; width: 400px; text-align: center; border: 1px solid #334155; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
 .dss-modal h3 { margin-top: 0; font-size: 16px; border-bottom: 1px solid #334155; padding-bottom: 15px; letter-spacing: 1px; }
