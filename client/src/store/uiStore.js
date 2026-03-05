@@ -6,7 +6,8 @@ export const useUiStore = defineStore('ui', {
     isCalculating: false,
     isRightSidebarOpen: false,
     activeModal: null, 
-    modalData: null    
+    modalData: null,
+    mapSnapshot: null // Memorizza lo screenshot della mappa per il report
   }),
   actions: {
     showToast(message, type = 'info') {
@@ -29,6 +30,9 @@ export const useUiStore = defineStore('ui', {
     closeModal() {
       this.activeModal = null;
       this.modalData = null;
+    },
+    setMapSnapshot(dataUrl) {
+      this.mapSnapshot = dataUrl;
     }
   }
 });

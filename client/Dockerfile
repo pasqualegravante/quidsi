@@ -14,6 +14,8 @@ RUN npm install proj4
 
 RUN npm install pinia
 
+RUN npm install html2canvas
+
 # Copia tutto il resto del codice della tua app Vue
 COPY . .
 

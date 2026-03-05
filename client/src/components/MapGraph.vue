@@ -13,7 +13,6 @@ import { ref, shallowRef, onMounted, onBeforeUnmount, watch, nextTick } from 'vu
 import { useDssStore } from '../store/dssStore'; 
 import { getFeatureStyle } from '../utils/mapStyles';
 
-// Importiamo solo i composables di logica "decorativa"
 import { useMapMarkers } from '../composables/useMapMarkers';
 import { useMapSync } from '../composables/useMapSync';
 import { useMapFocus } from '../composables/useMapFocus';
@@ -24,33 +23,61 @@ const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
 
 export default {
   name: 'MapGraph',
-  props: { focusEdgeId: String },
+  props: { 
+    focusEdgeId: String,
+    closedEdges: { type: Array, default: () => [] }
+  },
   emits: ['select-edge', 'clear-selection', 'search-select'],
 
   setup(props, { emit }) {
     const dssStore = useDssStore();
-    const mapContainer = ref(null); // Riferimento al DIV
+    const mapContainer = ref(null);
     const loading = ref(false);
-    
-    // shallowRef per evitare lag e loop infiniti
     const map = shallowRef(null);
     const graphLayer = shallowRef(null);
     const uidIndex = shallowRef({}); 
     let resizeObserver = null;
 
-    // Helper per i composables
     const findLayerById = (id) => Object.values(uidIndex.value).find(l => String(l.feature.properties.uniqueDbId) === String(id));
 
-    // 1. Inizializziamo i composables di LOGICA
-    // Passiamo le shallowRef così i composables possono "reagire" quando la mappa viene creata
     useMapSync(graphLayer, dssStore, uidIndex);
     useMapMarkers(map, dssStore, findLayerById);
     const { zoomToEdgeGroup } = useMapFocus(map, uidIndex, dssStore, emit);
 
-    // 2. Funzione di inizializzazione MAPPA (rimane qui per sicurezza DOM)
-    const initMap = () => {
-      if (!mapContainer.value) return; // Protezione contro "container not found"
+    // FUNZIONE CORRETTA: Zoom su Chiusure + Percorso
+    const fitToReportContent = () => {
+      if (!map.value || !graphLayer.value) return;
       
+      const targetLayers = [];
+
+      // 1. Aggiungiamo le chiusure
+      if (props.closedEdges && props.closedEdges.length > 0) {
+        const closures = graphLayer.value.getLayers().filter(l => 
+          props.closedEdges.includes(String(l.feature.properties.id_arco || l.feature.properties.codice))
+        );
+        targetLayers.push(...closures);
+      }
+
+      // 2. Aggiungiamo il percorso (riconosciuto dallo stile blu)
+      const pathLayers = graphLayer.value.getLayers().filter(l => 
+        l.options.color === '#3b82f6' || l.options.weight === 6
+      );
+      targetLayers.push(...pathLayers);
+
+      // Eseguiamo fitBounds SOLO se abbiamo trovato elementi validi
+      if (targetLayers.length > 0) {
+        const group = L.featureGroup(targetLayers);
+        const bounds = group.getBounds();
+        
+        // Verifica di sicurezza sulle coordinate dei bounds
+        if (bounds.isValid()) {
+          map.value.fitBounds(bounds, { padding: [50, 50], animate: false });
+        }
+      }
+    };
+
+    const initMap = () => {
+      if (!mapContainer.value) return;
       const leafletMap = L.map(mapContainer.value, {
         zoomControl: false, 
         preferCanvas: true, 
@@ -61,18 +88,15 @@ export default {
       map.value = leafletMap;
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map.value);
       L.control.zoom({ position: 'topleft' }).addTo(map.value);
-      
       map.value.on('click', () => emit('clear-selection'));
     };
 
-    // 3. Caricamento Dati (rimane qui per garantire l'ordine)
     const loadGraph = async () => {
       if (!map.value) return;
       loading.value = true;
       try {
         const res = await fetch('/grafo_web.geojson');
         const data = await res.json();
-        
         const geojson = L.geoJSON(data, {
           coordsToLatLng: (coords) => { 
             const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); 
@@ -83,7 +107,6 @@ export default {
             const id = String(feature.properties.id_arco || feature.properties.codice);
             uidIndex.value[L.stamp(layer)] = layer;
             feature.properties.uniqueDbId = id;
-            
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               emit('select-edge', { 
@@ -93,26 +116,20 @@ export default {
             });
           }
         });
-
         graphLayer.value = geojson;
         graphLayer.value.addTo(map.value);
-        
         dssStore.allEdges = data.features.map(f => ({ 
           id: String(f.properties.id_arco || f.properties.codice), 
           street: f.properties.desvia || 'Senza Nome' 
         }));
       } catch (err) {
         console.error("Errore caricamento Grafo:", err);
-      } finally { 
-        loading.value = false; 
-      }
+      } finally { loading.value = false; }
     };
 
-    // Watchers
     watch(() => props.focusEdgeId, (id) => { if (id) zoomToEdgeGroup(id); });
 
     onMounted(async () => {
-      // Usiamo nextTick per essere sicuri al 200% che il DOM sia pronto
       await nextTick();
       initMap();
       if (map.value) {
@@ -124,16 +141,11 @@ export default {
 
     onBeforeUnmount(() => { if (resizeObserver) resizeObserver.disconnect(); });
 
-    return { mapContainer, loading, dssStore };
+    return { mapContainer, loading, dssStore, fitToReportContent };
   }
 };
 </script>
 
 <style scoped>
 .map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; position: relative; }
-.map-loader { 
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-  background: white; padding: 15px 25px; border-radius: 8px; z-index: 2000; 
-  font-weight: 800; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); 
-}
 </style>
