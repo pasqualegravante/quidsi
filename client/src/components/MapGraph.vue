@@ -9,11 +9,14 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
-import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, shallowRef, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useDssStore } from '../store/dssStore'; 
 import { getFeatureStyle } from '../utils/mapStyles';
+
+// Importiamo solo i composables di logica "decorativa"
 import { useMapMarkers } from '../composables/useMapMarkers';
 import { useMapSync } from '../composables/useMapSync';
+import { useMapFocus } from '../composables/useMapFocus';
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -26,33 +29,45 @@ export default {
 
   setup(props, { emit }) {
     const dssStore = useDssStore();
-    const mapContainer = ref(null);
+    const mapContainer = ref(null); // Riferimento al DIV
     const loading = ref(false);
     
-    // shallowRef non rende reattivi i contenuti interni -> ZERO LAG
+    // shallowRef per evitare lag e loop infiniti
     const map = shallowRef(null);
     const graphLayer = shallowRef(null);
     const uidIndex = shallowRef({}); 
     let resizeObserver = null;
 
-    // --- FUNZIONI CORE (Riportate qui per stabilità) ---
-    const findLayerById = (dbId) => {
-      return Object.values(uidIndex.value).find(l => String(l.feature.properties.uniqueDbId) === String(dbId));
-    };
+    // Helper per i composables
+    const findLayerById = (id) => Object.values(uidIndex.value).find(l => String(l.feature.properties.uniqueDbId) === String(id));
 
+    // 1. Inizializziamo i composables di LOGICA
+    // Passiamo le shallowRef così i composables possono "reagire" quando la mappa viene creata
+    useMapSync(graphLayer, dssStore, uidIndex);
+    useMapMarkers(map, dssStore, findLayerById);
+    const { zoomToEdgeGroup } = useMapFocus(map, uidIndex, dssStore, emit);
+
+    // 2. Funzione di inizializzazione MAPPA (rimane qui per sicurezza DOM)
     const initMap = () => {
-      if (map.value) return;
+      if (!mapContainer.value) return; // Protezione contro "container not found"
+      
       const leafletMap = L.map(mapContainer.value, {
-        zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, minZoom: 12
+        zoomControl: false, 
+        preferCanvas: true, 
+        maxBounds: TRENTO_BOUNDS, 
+        minZoom: 12
       }).setView([46.0665, 11.1216], 15);
 
       map.value = leafletMap;
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map.value);
       L.control.zoom({ position: 'topleft' }).addTo(map.value);
+      
       map.value.on('click', () => emit('clear-selection'));
     };
 
+    // 3. Caricamento Dati (rimane qui per garantire l'ordine)
     const loadGraph = async () => {
+      if (!map.value) return;
       loading.value = true;
       try {
         const res = await fetch('/grafo_web.geojson');
@@ -68,6 +83,7 @@ export default {
             const id = String(feature.properties.id_arco || feature.properties.codice);
             uidIndex.value[L.stamp(layer)] = layer;
             feature.properties.uniqueDbId = id;
+            
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               emit('select-edge', { 
@@ -80,48 +96,30 @@ export default {
 
         graphLayer.value = geojson;
         graphLayer.value.addTo(map.value);
+        
         dssStore.allEdges = data.features.map(f => ({ 
           id: String(f.properties.id_arco || f.properties.codice), 
           street: f.properties.desvia || 'Senza Nome' 
         }));
-      } finally { loading.value = false; }
-    };
-
-    const zoomToEdgeGroup = (dbId) => {
-      if (!dbId || !map.value) return;
-      const targetId = String(dbId);
-      const matchingLayers = Object.values(uidIndex.value).filter(l => 
-        String(l.feature.properties.uniqueDbId).startsWith(targetId)
-      );
-
-      if (matchingLayers.length > 0) {
-        const group = L.featureGroup(matchingLayers);
-        map.value.flyToBounds(group.getBounds(), { maxZoom: 17, duration: 1.2, padding: [40, 40] });
-
-        const payloads = matchingLayers.map(layer => ({
-          id: String(layer.feature.properties.uniqueDbId),
-          street: layer.feature.properties.desvia,
-          oneWay: layer.feature.properties.sensouni,
-          isClosed: !!layer.feature.properties.isClosed,
-          isMulti: true 
-        }));
-        emit('search-select', payloads);
-        dssStore.clearMapFocus(); 
+      } catch (err) {
+        console.error("Errore caricamento Grafo:", err);
+      } finally { 
+        loading.value = false; 
       }
     };
-
-    // --- COMPOSABLES (Dedicati solo alla logica di ricoloramento e puntini) ---
-    useMapSync(graphLayer, dssStore, uidIndex);
-    useMapMarkers(map, dssStore, findLayerById);
 
     // Watchers
     watch(() => props.focusEdgeId, (id) => { if (id) zoomToEdgeGroup(id); });
 
-    onMounted(() => {
+    onMounted(async () => {
+      // Usiamo nextTick per essere sicuri al 200% che il DOM sia pronto
+      await nextTick();
       initMap();
-      loadGraph();
-      resizeObserver = new ResizeObserver(() => { if (map.value) map.value.invalidateSize(); });
-      resizeObserver.observe(mapContainer.value);
+      if (map.value) {
+        await loadGraph();
+        resizeObserver = new ResizeObserver(() => { if (map.value) map.value.invalidateSize(); });
+        resizeObserver.observe(mapContainer.value);
+      }
     });
 
     onBeforeUnmount(() => { if (resizeObserver) resizeObserver.disconnect(); });
@@ -133,5 +131,9 @@ export default {
 
 <style scoped>
 .map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; position: relative; }
-.map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 2000; font-weight: 800; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+.map-loader { 
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+  background: white; padding: 15px 25px; border-radius: 8px; z-index: 2000; 
+  font-weight: 800; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); 
+}
 </style>
