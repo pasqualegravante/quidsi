@@ -19,16 +19,16 @@
             :cursor="dssStore.selectionMode ? 'crosshair' : 'grab'"
             :startPoint="dssStore.routingStartPoint"
             :endPoint="dssStore.routingEndPoint"
-            @select-edge="handleEdgeSelect"
-            @clear-selection="handleClearSelection"
-            @search-select="handleSearchSelect"
+            @select-edge="dssStore.processMapClick"
+            @clear-selection="dssStore.clearMapSelection"
+            @search-select="dssStore.processSearchSelect"
           />
           <MapLegend />
         </div>
 
         <SidebarRight 
-          :isOpen="isRightSidebarOpen" 
-          @close="isRightSidebarOpen = false"
+          :isOpen="uiStore.isRightSidebarOpen" 
+          @close="uiStore.setRightSidebar(false)"
         />
       </main>
     </template>
@@ -52,32 +52,6 @@ export default {
     const dssStore = useDssStore();
     const uiStore = useUiStore();
     return { dssStore, uiStore };
-  },
-  data() {
-    return {
-      isRightSidebarOpen: false
-    }
-  },
-  methods: {
-    handleEdgeSelect(edgePayload) {
-      if (this.dssStore.selectionMode) {
-        this.dssStore.setRoutingPoint(edgePayload);
-      } else {
-        this.dssStore.handleEdgeSelection(edgePayload);
-        this.isRightSidebarOpen = this.dssStore.selectedEdges.length > 0;
-      }
-    },
-    handleClearSelection() {
-      if (!this.dssStore.selectionMode) {
-        this.dssStore.selectedEdges = [];
-        this.isRightSidebarOpen = false;
-      }
-    },
-    // --- NUOVO --- Gestisce la selezione di massa quando cerchi una via dalla Navbar
-    handleSearchSelect(segmentsPayloads) {
-      this.dssStore.selectedEdges = segmentsPayloads;
-      this.isRightSidebarOpen = true; // Apre automaticamente la sidebar destra
-    }
   }
 };
 </script>

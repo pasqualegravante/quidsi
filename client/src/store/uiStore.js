@@ -4,6 +4,7 @@ export const useUiStore = defineStore('ui', {
   state: () => ({
     toasts: [],
     isCalculating: false,
+    isRightSidebarOpen: false,
   }),
   actions: {
     showToast(message, type = 'info') {
@@ -15,6 +16,9 @@ export const useUiStore = defineStore('ui', {
     },
     setCalculating(status) {
       this.isCalculating = status;
+    },
+    setRightSidebar(isOpen) {
+      this.isRightSidebarOpen = isOpen;
     }
   }
 });

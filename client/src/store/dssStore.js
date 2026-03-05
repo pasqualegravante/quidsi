@@ -41,6 +41,26 @@ export const useDssStore = defineStore('dss', () => {
   function handleEdgeSelection(p) { return map.handleEdgeSelection(p); }
   function clearMapFocus() { map.clearMapFocus(); }
   function resetSelection() { map.resetSelection(); }
+  function processMapClick(edgePayload) {
+    if (map.selectionMode) {
+      map.setRoutingPoint(edgePayload);
+    } else {
+      map.handleEdgeSelection(edgePayload);
+      ui.setRightSidebar(map.selectedEdges.length > 0);
+    }
+  }
+
+  function clearMapSelection() {
+    if (!map.selectionMode) {
+      map.resetSelection();
+      ui.setRightSidebar(false);
+    }
+  }
+
+  function processSearchSelect(segmentsPayloads) {
+    map.selectedEdges = segmentsPayloads;
+    ui.setRightSidebar(true);
+  }
   
   // CORREZIONE BUG #3: Mappata la funzione per la modalità selezione A/B
   function setSelectionMode(m) { map.selectionMode = (map.selectionMode === m ? null : m); }
@@ -77,6 +97,6 @@ export const useDssStore = defineStore('dss', () => {
     
     performLogin, handleEdgeSelection, clearMapFocus, resetSelection, setSelectionMode, setRoutingPoint,
     fetchAllScenarios, selectScenario, saveCurrentScenario, resolvePendingAction, createScenario, updateScenarioInfo, duplicateScenario, deleteScenario,
-    calculateDijkstra, calculateConnessione, toggleStreetStatus, toggleEdgeStatus
+    calculateDijkstra, calculateConnessione, toggleStreetStatus, toggleEdgeStatus, processMapClick, clearMapSelection, processSearchSelect
   };
 });
