@@ -43,13 +43,14 @@ import MapGraph from './components/MapGraph.vue';
 import MapLegend from './components/MapLegend.vue';
 import Login from './components/Login.vue'; 
 import { useDssStore } from './store/dssStore';
-import { uiStore } from './store/uiStore';
+import { useUiStore } from './store/uiStore';
 
 export default {
   name: 'App',
   components: { Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login },
   setup() {
     const dssStore = useDssStore();
+    const uiStore = useUiStore();
     return { dssStore, uiStore };
   },
   data() {

@@ -18,12 +18,14 @@
 
 <script>
 import { useDssStore } from '../../store/dssStore';
-import { uiStore } from '../../store/uiStore';
+import { useUiStore } from '../../store/uiStore';
 
 export default {
   name: 'MultiEdgePanel',
   setup() {
     const dssStore = useDssStore();
+    const uiStore = useUiStore();
+
     return { dssStore, uiStore };
   },
   methods: {

@@ -1,4 +1,4 @@
-import { uiStore } from '../store/uiStore'; 
+import { useUiStore } from '../store/uiStore';
 
 export const StorageService = {
   getClosures() {
@@ -13,6 +13,7 @@ export const StorageService = {
       localStorage.setItem('dss_active_closures', JSON.stringify(closuresArray));
     } catch (e) {
       if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+        const uiStore = useUiStore(); // <-- Istanzia qui dentro
         uiStore.showToast("Memoria del browser piena! Impossibile salvare.", "error");
       }
     }
