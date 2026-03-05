@@ -20,13 +20,13 @@
             :startPoint="dssStore.routingStartPoint"
             :endPoint="dssStore.routingEndPoint"
             @select-edge="handleEdgeSelect"
+            @clear-selection="handleClearSelection"
           />
           <MapLegend />
         </div>
 
         <SidebarRight 
           :isOpen="isRightSidebarOpen" 
-          :selectedEdge="dssStore.selectedEdge"
           @close="isRightSidebarOpen = false"
         />
       </main>
@@ -40,13 +40,12 @@ import SidebarLeft from './components/SidebarLeft.vue';
 import SidebarRight from './components/SidebarRight.vue';
 import MapGraph from './components/MapGraph.vue';
 import MapLegend from './components/MapLegend.vue';
-import Login from './components/Login.vue'; // --- NUOVO --- Importa il componente Login
+import Login from './components/Login.vue'; 
 import { useDssStore } from './store/dssStore';
 import { uiStore } from './store/uiStore';
 
 export default {
   name: 'App',
-  // --- MODIFICATO --- Aggiunto Login nei components
   components: { Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login },
   setup() {
     const dssStore = useDssStore();
@@ -58,13 +57,19 @@ export default {
     }
   },
   methods: {
-    handleEdgeSelect(edge) {
-      // Se stiamo selezionando A o B, invia allo store. Altrimenti apri info.
+    handleEdgeSelect(edgePayload) {
       if (this.dssStore.selectionMode) {
-        this.dssStore.setRoutingPoint(edge);
+        this.dssStore.setRoutingPoint(edgePayload);
       } else {
-        this.dssStore.selectedEdge = edge;
-        this.isRightSidebarOpen = true;
+        this.dssStore.handleEdgeSelection(edgePayload);
+        this.isRightSidebarOpen = this.dssStore.selectedEdges.length > 0;
+      }
+    },
+    // --- NUOVO --- Azzera tutto se si clicca nel vuoto
+    handleClearSelection() {
+      if (!this.dssStore.selectionMode) {
+        this.dssStore.selectedEdges = [];
+        this.isRightSidebarOpen = false;
       }
     }
   }

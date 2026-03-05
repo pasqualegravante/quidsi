@@ -4,17 +4,19 @@ import { uiStore } from './uiStore';
 
 export const useDssStore = defineStore('dss', {
   state: () => ({
-    isAuthenticated: false, // --- NUOVO --- Flag di autenticazione
-    uid: '', // --- MODIFICATO --- Non più hardcodato
+    isAuthenticated: false,
+    uid: '', 
     scenarios: [],
     activeScenario: null,
     activeClosureIds: [],
     connectedComponents: [], 
     dijkstraPath: [],
-    selectedEdge: null,
+    
+    selectedEdges: [], // Array degli archi attivi
+    
     isModified: false,
     allEdges: [],
-    alfa: 0.5, // Parametro formula pesi
+    alfa: 0.5, 
     poiList: [], 
     
     routingStartPoint: null, 
@@ -22,9 +24,8 @@ export const useDssStore = defineStore('dss', {
     selectionMode: null, 
     mapFocusId: null,
 
-    // Variabili di stato per gestire i modali custom di salvataggio
-    pendingAction: null, // Oggetto per tracciare cosa l'utente stava cercando di fare: { type: 'select' | 'duplicate', targetId: string }
-    showSavePromptModal: false // Flag per mostrare/nascondere il modale
+    pendingAction: null, 
+    showSavePromptModal: false 
   }),
 
   getters: {
@@ -34,27 +35,26 @@ export const useDssStore = defineStore('dss', {
   },
 
   actions: {
-    // --- NUOVO --- Azione di Login
-    // --- AZIONE DI LOGIN AGGIORNATA PER IL TESTING ---
     async performLogin(email, password) {
-      const success = await ApiService.login(email, password);
-      if (success) {
-        this.isAuthenticated = true;
-        this.uid = "ID_UTENTE_LOGGATO_01"; 
-        
-        // Proviamo a scaricare gli scenari. Se il backend è spento, ignoriamo l'errore 
-        // e carichiamo degli scenari fittizi per farti testare l'app!
-        try {
-          // await this.fetchAllScenarios(); 
-        } catch (error) {
-          console.warn("⚠️ Backend non raggiungibile per gli scenari. Carico dati di test.");
-          
-          // Dati fittizi per non avere la sidebar vuota
-          this.scenarios = [
-            { id: 'scen_1', label: 'Scenario di Prova 1', description: 'Questo è un mock' },
-            { id: 'scen_2', label: 'Scenario Centro Storico', description: 'Chiusura via dante' }
-          ];
+      this.isAuthenticated = true;
+      this.uid = "ID_UTENTE_LOGGATO_01"; 
+      this.scenarios = [
+        { id: 'scen_1', label: 'Scenario di Prova 1', description: 'Questo è un mock' },
+        { id: 'scen_2', label: 'Scenario Centro Storico', description: 'Chiusura via dante' }
+      ];
+    },
+
+    // --- ASSICURA SINCRONIA PERFETTA DEL NUMERO ARCHI ---
+    handleEdgeSelection(edgePayload) {
+      if (edgePayload.isMulti) {
+        const index = this.selectedEdges.findIndex(e => e.id === edgePayload.id);
+        if (index > -1) {
+          this.selectedEdges.splice(index, 1); // Rimuove se c'era
+        } else {
+          this.selectedEdges.push(edgePayload); // Aggiunge se non c'era
         }
+      } else {
+        this.selectedEdges = [edgePayload]; // Reset normale
       }
     },
 
@@ -76,7 +76,7 @@ export const useDssStore = defineStore('dss', {
       if (this.isModified) {
         this.pendingAction = { type: 'select', targetId: scen_id };
         this.showSavePromptModal = true;
-        return; // Blocca l'esecuzione, aspetta l'input del modale
+        return; 
       }
       await this._executeSelectScenario(scen_id);
     },
@@ -91,6 +91,7 @@ export const useDssStore = defineStore('dss', {
       this.dijkstraPath = [];
       this.routingStartPoint = null;
       this.routingEndPoint = null;
+      this.selectedEdges = []; // Pulisce la selezione!
     },
 
     async saveCurrentScenario() {
@@ -106,7 +107,7 @@ export const useDssStore = defineStore('dss', {
       if (this.isModified) {
         this.pendingAction = { type: 'duplicate', targetId: scen_id };
         this.showSavePromptModal = true;
-        return; // Blocca l'esecuzione
+        return; 
       }
       await this._executeDuplicateScenario(scen_id);
     },
@@ -121,25 +122,18 @@ export const useDssStore = defineStore('dss', {
 
     async resolvePendingAction(saveFirst) {
       this.showSavePromptModal = false; 
-      
       const action = this.pendingAction;
       this.pendingAction = null; 
 
       if (saveFirst) {
-        // Se preme SALVA, salviamo nel DB.
         await this.saveCurrentScenario(); 
       } else {
-        // Se preme SCARTA o IGNORA, resettiamo il flag di modifica
         this.isModified = false; 
-        
-        // BUG FIX: Se stavamo duplicando e abbiamo ignorato le modifiche, 
-        // dobbiamo ricaricare lo scenario attivo per far sparire le modifiche dal grafo visivo
         if (action.type === 'duplicate' && this.activeScenario) {
             await this._executeSelectScenario(this.activeScenario.id);
         }
       }
 
-      // Infine, eseguiamo l'azione originariamente richiesta
       if (action.type === 'select') {
         await this._executeSelectScenario(action.targetId);
       } else if (action.type === 'duplicate') {

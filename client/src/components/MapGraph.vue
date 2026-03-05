@@ -19,7 +19,7 @@ const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
 export default {
   name: 'MapGraph',
   props: { closedEdges: Array, focusEdgeId: String },
-  emits: ['select-edge'],
+  emits: ['select-edge', 'clear-selection'], // --- Aggiunto clear-selection
 
   setup() { 
     const dssStore = useDssStore(); 
@@ -28,14 +28,15 @@ export default {
 
   created() {
     this.uidIndex = {};   
-    this.groupIndex = {}; 
   },
 
   data() {
-    return { map: null, graphLayer: null, poiLayer: null, loading: false, lastSelectedUids: [] };
+    return { map: null, graphLayer: null, poiLayer: null, loading: false };
   },
 
   watch: {
+    // --- NUOVO --- Ora la mappa ascolta attivamente lo store per le linee gialle!
+    'dssStore.selectedEdges': { handler(newEdges) { this.syncSelection(newEdges); }, deep: true },
     closedEdges: { handler(newIds) { this.syncClosures(newIds); }, deep: true },
     'dssStore.connectedComponents': { handler(newCCs) { this.renderConnectedComponents(newCCs); }, deep: true },
     'dssStore.dijkstraPath': { handler(newPath) { this.syncRoutePath(newPath); }, deep: true },
@@ -57,7 +58,8 @@ export default {
       this.poiLayer = markRaw(L.layerGroup()).addTo(this.map); 
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
       
-      this.map.on('click', () => { this.clearHighlight(); });
+      // --- MODIFICATO --- Comunichiamo al padre il click a vuoto
+      this.map.on('click', () => { this.$emit('clear-selection'); });
     },
 
     renderPOI() {
@@ -79,23 +81,31 @@ export default {
 
         const geojson = L.geoJSON(data, {
           coordsToLatLng: (coords) => { const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); return [t[1], t[0]]; },
+          
+          // --- NUOVO --- Regole gerarchiche assolute per i colori base
           style: (feature) => {
             if (feature.properties.isClosed) return { color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 };
-            return { color: '#3b82f6', weight: 3, opacity: 0.6 };
+            if (feature.properties.ccColor) return { color: feature.properties.ccColor, weight: 8, opacity: 0.9, dashArray: '' };
+            if (feature.properties.isRoute) return { color: '#10b981', weight: 8, opacity: 1 };
+            return { color: '#3b82f6', weight: 3, opacity: 0.6 }; // Default blu
           },
+          
           onEachFeature: (feature, layer) => {
             const uniqueId = String(feature.properties.id_arco || feature.properties.codice);
             const uid = String(L.stamp(layer));
             this.uidIndex[uid] = layer;
             feature.properties.uniqueDbId = uniqueId;
-            feature.properties._uid = uid;
 
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
-              if (e.originalEvent.ctrlKey) this.multiHighlight(layer);
-              else this.highlight(layer);
-              
-              this.$emit('select-edge', { uid: uid, id: uniqueId, street: feature.properties.desvia, oneWay: feature.properties.sensouni, isClosed: !!feature.properties.isClosed });
+              // Invia solo l'evento, la mappa non colora più nulla da sola!
+              this.$emit('select-edge', { 
+                id: uniqueId, 
+                street: feature.properties.desvia, 
+                oneWay: feature.properties.sensouni, 
+                isClosed: !!feature.properties.isClosed,
+                isMulti: e.originalEvent.ctrlKey
+              });
             });
           }
         });
@@ -103,7 +113,6 @@ export default {
         this.graphLayer = markRaw(geojson);
         this.graphLayer.addTo(this.map);
         
-        // Popola l'indice delle strade per la ricerca e "Riapri Via"
         this.dssStore.allEdges = data.features.map(f => ({
           id: String(f.properties.id_arco || f.properties.codice),
           street: f.properties.desvia || 'Senza Nome'
@@ -113,38 +122,73 @@ export default {
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
 
+    // --- NUOVO --- Metodo Reattivo per la linea gialla
+    syncSelection(selectedEdges) {
+      if (!this.graphLayer) return;
+      const selectedIds = new Set(selectedEdges.map(e => String(e.id)));
+      
+      Object.values(this.uidIndex).forEach(layer => {
+        const id = String(layer.feature.properties.uniqueDbId);
+        if (selectedIds.has(id)) {
+           // Forza colore giallo se è selezionato
+           layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
+           layer.bringToFront();
+        } else {
+           // Altrimenti ripristina il suo colore originale (rosso o blu)
+           this.graphLayer.resetStyle(layer);
+        }
+      });
+    },
+
     syncClosures(closedIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(closedIds.map(String));
+      const selectedIds = new Set(this.dssStore.selectedEdges.map(e => String(e.id)));
+      
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.uniqueDbId);
-        const isClosed = setIds.has(id);
-        layer.feature.properties.isClosed = isClosed;
-        if (isClosed) layer.setStyle({ color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 });
-        else this.graphLayer.resetStyle(layer);
+        layer.feature.properties.isClosed = setIds.has(id); // Salva lo stato
+        
+        // Se non è attualmente giallo/selezionato, applica la grafica base
+        if (!selectedIds.has(id)) {
+           this.graphLayer.resetStyle(layer);
+        }
       });
     },
 
     renderConnectedComponents(ccs) {
       if (!this.graphLayer || !ccs || !ccs.length) return;
       const colors = ['#f472b6', '#8b5cf6', '#06b6d4', '#fbbf24', '#a3e635'];
+      
+      const ccMap = new Map();
       ccs.forEach((group, index) => {
         const color = colors[index % colors.length];
-        group.forEach(edgeId => {
-          const layer = Object.values(this.uidIndex).find(l => String(l.feature.properties.uniqueDbId) === String(edgeId));
-          if (layer) layer.setStyle({ color: color, weight: 8, opacity: 0.9, dashArray: '' });
-        });
+        group.forEach(edgeId => ccMap.set(String(edgeId), color));
+      });
+
+      Object.values(this.uidIndex).forEach(layer => {
+        const id = String(layer.feature.properties.uniqueDbId);
+        layer.feature.properties.ccColor = ccMap.get(id) || null;
+        
+        if (!this.dssStore.selectedEdges.some(e => e.id === id)) {
+           this.graphLayer.resetStyle(layer);
+        }
       });
     },
 
     syncRoutePath(pathIds) {
       if (!this.graphLayer) return;
       const setIds = new Set(pathIds.map(String));
+      const selectedIds = new Set(this.dssStore.selectedEdges.map(e => String(e.id)));
+
       Object.values(this.uidIndex).forEach(layer => {
-        if (setIds.has(String(layer.feature.properties.uniqueDbId))) {
-          layer.setStyle({ color: '#10b981', weight: 8, opacity: 1 });
-          layer.bringToFront();
+        const id = String(layer.feature.properties.uniqueDbId);
+        layer.feature.properties.isRoute = setIds.has(id);
+        
+        if (!selectedIds.has(id)) {
+           this.graphLayer.resetStyle(layer); 
         }
+        if (layer.feature.properties.isRoute) layer.bringToFront();
       });
     },
 
@@ -153,33 +197,7 @@ export default {
       const layer = Object.values(this.uidIndex).find(l => String(l.feature.properties.uniqueDbId) === targetId);
       if (layer) {
         this.map.flyToBounds(layer.getBounds(), { maxZoom: 18, duration: 1.2 });
-        this.highlight(layer);
       }
-    },
-
-    highlight(target) {
-      this.clearHighlight();
-      target.setStyle({ color: '#f59e0b', weight: 8, opacity: 1 });
-      this.lastSelectedUids = [target.feature.properties._uid];
-    },
-
-    multiHighlight(target) {
-      const uid = target.feature.properties._uid;
-      if (this.lastSelectedUids.includes(uid)) {
-        this.graphLayer.resetStyle(target);
-        this.lastSelectedUids = this.lastSelectedUids.filter(u => u !== uid);
-      } else {
-        target.setStyle({ color: '#f59e0b', weight: 8, opacity: 1 });
-        this.lastSelectedUids.push(uid);
-      }
-    },
-
-    clearHighlight() {
-      this.lastSelectedUids.forEach(uid => {
-        const layer = this.uidIndex[uid];
-        if (layer) this.graphLayer.resetStyle(layer);
-      });
-      this.lastSelectedUids = [];
     }
   }
 };
