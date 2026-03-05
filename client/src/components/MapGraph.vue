@@ -36,7 +36,10 @@ export default {
       map: null, 
       graphLayer: null, 
       loading: false,
-      resizeObserver: null // --- NUOVO: Sensore di ridimensionamento
+      resizeObserver: null,
+      // Layer vettoriali per i punti A e B
+      startPointLayer: null,
+      endPointLayer: null
     };
   },
 
@@ -45,15 +48,17 @@ export default {
     closedEdges: { handler(newIds) { this.syncClosures(newIds); }, deep: true },
     'dssStore.connectedComponents': { handler(newCCs) { this.renderConnectedComponents(newCCs); }, deep: true },
     'dssStore.dijkstraPath': { handler(newPath) { this.syncRoutePath(newPath); }, deep: true },
-    focusEdgeId(newId) { if (newId) this.zoomToEdgeGroup(newId); }
+    focusEdgeId(newId) { if (newId) this.zoomToEdgeGroup(newId); },
+    
+    // Watchers per i marker A e B
+    'dssStore.routingStartPoint': { handler() { this.updateRoutingMarkers(); }, deep: true },
+    'dssStore.routingEndPoint': { handler() { this.updateRoutingMarkers(); }, deep: true }
   },
 
   mounted() { 
     this.initMap(); 
     this.loadGraph(); 
 
-    // --- NUOVO --- Osserva se il div della mappa cambia dimensione (es. chiusura sidebar)
-    // e forza Leaflet a ricalcolare i "tiles" per non lasciare buchi vuoti
     this.resizeObserver = new ResizeObserver(() => {
       if (this.map) {
         this.map.invalidateSize();
@@ -62,7 +67,6 @@ export default {
     this.resizeObserver.observe(this.$refs.mapContainer);
   },
 
-  // --- NUOVO --- Pulizia del sensore quando il componente viene distrutto
   beforeUnmount() {
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -73,7 +77,7 @@ export default {
     initMap() {
       this.map = markRaw(L.map(this.$refs.mapContainer, {
         zoomControl: false, 
-        preferCanvas: true, 
+        preferCanvas: true, // Cruciale per far sì che cerchi e linee si muovano insieme
         maxBounds: TRENTO_BOUNDS, 
         minZoom: 12
       }).setView([46.0665, 11.1216], 15));
@@ -130,6 +134,40 @@ export default {
       }
     },
 
+    // --- NUOVA LOGICA VETTORIALE PER I PUNTI DIJKSTRA ---
+    updateRoutingMarkers() {
+      if (this.startPointLayer) { this.map.removeLayer(this.startPointLayer); this.startPointLayer = null; }
+      if (this.endPointLayer) { this.map.removeLayer(this.endPointLayer); this.endPointLayer = null; }
+
+      const createCircle = (pointData, color) => {
+        const layer = Object.values(this.uidIndex).find(l => String(l.feature.properties.uniqueDbId) === String(pointData.id));
+        if (layer) {
+          let coords = layer.getLatLngs();
+          if (Array.isArray(coords[0])) coords = coords[0];
+          const midPoint = coords[Math.floor(coords.length / 2)];
+
+          // CircleMarker è disegnato sullo stesso piano del grafo: non può "slittare"
+          return L.circleMarker(midPoint, {
+            radius: 6,
+            fillColor: color,
+            color: '#ffffff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 1,
+            interactive: false
+          }).addTo(this.map);
+        }
+        return null;
+      };
+
+      if (this.dssStore.routingStartPoint) {
+        this.startPointLayer = createCircle(this.dssStore.routingStartPoint, '#3b82f6');
+      }
+      if (this.dssStore.routingEndPoint) {
+        this.endPointLayer = createCircle(this.dssStore.routingEndPoint, '#ef4444');
+      }
+    },
+
     syncSelection(selectedEdges) {
       if (!this.graphLayer) return;
       const selectedIds = new Set(selectedEdges.map(e => String(e.id)));
@@ -173,7 +211,7 @@ export default {
         const id = String(layer.feature.properties.uniqueDbId);
         layer.feature.properties.ccColor = ccMap.get(id) || null;
         
-        if (!this.dssStore.selectedEdges.some(e => e.id === id)) {
+        if (!this.dssStore.selectedEdges.some(e => String(e.id) === id)) {
            this.graphLayer.resetStyle(layer);
         }
       });
@@ -226,5 +264,5 @@ export default {
 
 <style scoped>
 .map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; position: relative; }
-.map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 1000; font-weight: 800; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+.map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 2000; font-weight: 800; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
 </style>
