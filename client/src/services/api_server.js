@@ -29,6 +29,45 @@ const fetchAPI = async (endpoint, payload, method = 'POST') => {
 export const ApiService = {
 
   // ==========================================
+  // AUTENTICAZIONE (MODIFICATO PER TESTING)
+  // ==========================================
+  
+  async login(email, password) {
+    // --- 1. CODICE MOCK (ATTIVO PER IL TESTING FRONTEND) ---
+    // Simula un ritardo di rete di 1 secondo per farti testare lo stato "Accesso in corso..." del bottone
+    // await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // TEST ERRORE: Se vuoi testare la comparsa del messaggio di errore rosso nella UI, 
+    // scommenta la riga qui sotto e commenta il "return true":
+    // throw new Error("Credenziali errate simulate per il test");
+    
+    // Simula il successo del login (ti farà entrare nell'app principale)
+    return true; 
+    
+    
+    /* // --- 2. CODICE VERO (COMMENTATO) ---
+    
+    const res = await fetch(`${API_BASE_URL}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // "credentials: 'include'" è obbligatorio affinché il browser salvi automaticamente 
+      // il cookie con il JWT inviato dal server, come richiesto dalle specifiche D2.
+      credentials: 'include', 
+      body: JSON.stringify({ email, password })
+    });
+    
+    // Se il server risponde con 401 Unauthorized o 404, lanciamo l'errore per la UI
+    if (!res.ok) {
+      throw new Error("Errore di login");
+    }
+    
+    // Il payload della response è vuoto. Il cookie viene automaticamente impostato dal browser, 
+    // non c'è alcuna azione lato client da programmare.
+    return true;
+    */
+  },
+
+  // ==========================================
   // GESTIONE SCENARI
   // ==========================================
 

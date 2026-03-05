@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia';
-import { ApiService } from '../services/api'; 
+import { ApiService } from '../services/api_server'; 
 import { uiStore } from './uiStore';
 
 export const useDssStore = defineStore('dss', {
   state: () => ({
-    uid: 'ID_USER_01',
+    isAuthenticated: false, // --- NUOVO --- Flag di autenticazione
+    uid: '', // --- MODIFICATO --- Non più hardcodato
     scenarios: [],
     activeScenario: null,
     activeClosureIds: [],
@@ -21,7 +22,6 @@ export const useDssStore = defineStore('dss', {
     selectionMode: null, 
     mapFocusId: null,
 
-    // --- NUOVO ---
     // Variabili di stato per gestire i modali custom di salvataggio
     pendingAction: null, // Oggetto per tracciare cosa l'utente stava cercando di fare: { type: 'select' | 'duplicate', targetId: string }
     showSavePromptModal: false // Flag per mostrare/nascondere il modale
@@ -34,7 +34,32 @@ export const useDssStore = defineStore('dss', {
   },
 
   actions: {
+    // --- NUOVO --- Azione di Login
+    // --- AZIONE DI LOGIN AGGIORNATA PER IL TESTING ---
+    async performLogin(email, password) {
+      const success = await ApiService.login(email, password);
+      if (success) {
+        this.isAuthenticated = true;
+        this.uid = "ID_UTENTE_LOGGATO_01"; 
+        
+        // Proviamo a scaricare gli scenari. Se il backend è spento, ignoriamo l'errore 
+        // e carichiamo degli scenari fittizi per farti testare l'app!
+        try {
+          // await this.fetchAllScenarios(); 
+        } catch (error) {
+          console.warn("⚠️ Backend non raggiungibile per gli scenari. Carico dati di test.");
+          
+          // Dati fittizi per non avere la sidebar vuota
+          this.scenarios = [
+            { id: 'scen_1', label: 'Scenario di Prova 1', description: 'Questo è un mock' },
+            { id: 'scen_2', label: 'Scenario Centro Storico', description: 'Chiusura via dante' }
+          ];
+        }
+      }
+    },
+
     async fetchAllScenarios() {
+      if (!this.uid) return;
       const res = await ApiService.getAllScenarios(this.uid);
       this.scenarios = res.scenarios;
     },
@@ -47,8 +72,6 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
-    // --- MODIFICATO ---
-    // Ora intercetta la richiesta. Se ci sono modifiche, blocca tutto e apre il modale.
     async selectScenario(scen_id) {
       if (this.isModified) {
         this.pendingAction = { type: 'select', targetId: scen_id };
@@ -58,8 +81,6 @@ export const useDssStore = defineStore('dss', {
       await this._executeSelectScenario(scen_id);
     },
 
-    // --- NUOVO ---
-    // Metodo interno che esegue effettivamente la chiamata API di selezione (chiamato direttamente o dopo il modale)
     async _executeSelectScenario(scen_id) {
       const res = await ApiService.selectScenario(this.uid, scen_id);
       this.activeScenario = res.scenario;
@@ -81,8 +102,6 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
-    // --- MODIFICATO ---
-    // Intercetta la duplicazione. Se ci sono modifiche, blocca tutto e apre il modale.
     async duplicateScenario(scen_id) {
       if (this.isModified) {
         this.pendingAction = { type: 'duplicate', targetId: scen_id };
@@ -92,8 +111,6 @@ export const useDssStore = defineStore('dss', {
       await this._executeDuplicateScenario(scen_id);
     },
 
-    // --- NUOVO ---
-    // Metodo interno che esegue effettivamente la chiamata API di duplicazione
     async _executeDuplicateScenario(scen_id) {
       const res = await ApiService.duplicateScenario(this.uid, scen_id);
       if (res.scen) {
@@ -102,8 +119,6 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
-    // --- NUOVO ---
-    // Risolve l'azione lasciata in sospeso (chiamata dai bottoni del modale in SidebarLeft.vue)
     async resolvePendingAction(saveFirst) {
       this.showSavePromptModal = false; 
       
@@ -119,7 +134,6 @@ export const useDssStore = defineStore('dss', {
         
         // BUG FIX: Se stavamo duplicando e abbiamo ignorato le modifiche, 
         // dobbiamo ricaricare lo scenario attivo per far sparire le modifiche dal grafo visivo
-        // (visto che l'utente ha esplicitamente scelto di "scartarle/ignorarle").
         if (action.type === 'duplicate' && this.activeScenario) {
             await this._executeSelectScenario(this.activeScenario.id);
         }

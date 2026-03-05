@@ -4,29 +4,33 @@
       <div class="spinner">Calcolo in corso...</div>
     </div>
     
-    <Navbar />
+    <Login v-if="!dssStore.isAuthenticated" />
 
-    <main class="dss-main-area">
-      <SidebarLeft />
+    <template v-else>
+      <Navbar />
 
-      <div class="map-container">
-        <MapGraph 
-          :closedEdges="dssStore.activeClosureIds"
-          :focusEdgeId="dssStore.mapFocusId"
-          :cursor="dssStore.selectionMode ? 'crosshair' : 'grab'"
-          :startPoint="dssStore.routingStartPoint"
-          :endPoint="dssStore.routingEndPoint"
-          @select-edge="handleEdgeSelect"
+      <main class="dss-main-area">
+        <SidebarLeft />
+
+        <div class="map-container">
+          <MapGraph 
+            :closedEdges="dssStore.activeClosureIds"
+            :focusEdgeId="dssStore.mapFocusId"
+            :cursor="dssStore.selectionMode ? 'crosshair' : 'grab'"
+            :startPoint="dssStore.routingStartPoint"
+            :endPoint="dssStore.routingEndPoint"
+            @select-edge="handleEdgeSelect"
+          />
+          <MapLegend />
+        </div>
+
+        <SidebarRight 
+          :isOpen="isRightSidebarOpen" 
+          :selectedEdge="dssStore.selectedEdge"
+          @close="isRightSidebarOpen = false"
         />
-        <MapLegend />
-      </div>
-
-      <SidebarRight 
-        :isOpen="isRightSidebarOpen" 
-        :selectedEdge="dssStore.selectedEdge"
-        @close="isRightSidebarOpen = false"
-      />
-    </main>
+      </main>
+    </template>
   </div>
 </template>
 
@@ -36,12 +40,14 @@ import SidebarLeft from './components/SidebarLeft.vue';
 import SidebarRight from './components/SidebarRight.vue';
 import MapGraph from './components/MapGraph.vue';
 import MapLegend from './components/MapLegend.vue';
+import Login from './components/Login.vue'; // --- NUOVO --- Importa il componente Login
 import { useDssStore } from './store/dssStore';
 import { uiStore } from './store/uiStore';
 
 export default {
   name: 'App',
-  components: { Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend },
+  // --- MODIFICATO --- Aggiunto Login nei components
+  components: { Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login },
   setup() {
     const dssStore = useDssStore();
     return { dssStore, uiStore };
