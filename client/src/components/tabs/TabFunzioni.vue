@@ -2,7 +2,7 @@
   <div class="tab-pane">
     <div class="pane-header">
       <h3>Applica funzione</h3>
-      <button class="collapse-btn">⮜</button>
+      <button class="collapse-btn" @click="$emit('collapse')" title="Chiudi pannello">⮜</button>
     </div>
     
     <div class="pane-body">
@@ -65,16 +65,19 @@ import { useDssStore } from '../../store/dssStore';
 
 export default {
   name: 'TabFunzioni',
+  // Dichiariamo l'evento emesso per avvisare il componente padre
+  emits: ['collapse'],
   setup() {
     const dssStore = useDssStore();
     return { dssStore };
   },
   data() {
     return {
-      selectedFunction: 'dijkstra'
+      selectedFunction: 'dijkstra' // Valore di default
     };
   },
   methods: {
+    // Esegue la funzione selezionata in base alla scelta dell'utente
     eseguiCalcolo() {
       if (this.selectedFunction === 'dijkstra') {
         this.dssStore.calculateDijkstra(this.dssStore.routingStartPoint.id, this.dssStore.routingEndPoint.id);
@@ -87,16 +90,19 @@ export default {
 </script>
 
 <style scoped>
+/* Stili layout e header */
 .tab-pane { display: flex; flex-direction: column; height: 100%; }
 .pane-header { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f1f5f9; border-bottom: 1px solid #cbd5e1; }
 .pane-header h3 { margin: 0; font-size: 14px; color: #0f172a; }
 .collapse-btn { background: #e2e8f0; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-weight: bold; }
 .pane-body { padding: 20px; flex: 1; overflow-y: auto; }
 
+/* Stili dropdown selettore */
 .dropdown-group { border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; margin-bottom: 25px; }
 .dropdown-group label { display: block; font-size: 10px; color: #64748b; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;}
 .custom-select { width: 100%; border: none; outline: none; background: transparent; font-weight: bold; color: #0f172a; cursor: pointer; font-size: 14px;}
 
+/* Stili input finti per selezione A/B */
 .input-with-icon { display: flex; align-items: center; border: 1px solid #94a3b8; border-radius: 20px; padding: 8px 15px; margin-bottom: 15px; background: white; transition: 0.2s;}
 .clickable-input { cursor: pointer; user-select: none; border-color: #cbd5e1; }
 .clickable-input:hover { border-color: #64748b; background: #f8fafc; }
@@ -105,12 +111,14 @@ export default {
 .fake-input.filled { color: #0f172a; font-weight: bold; }
 .location-icon { font-size: 16px; }
 
+/* Stili controller Alfa */
 .alfa-controller { margin: 25px 0 15px 0; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; }
 .alfa-controller label { display: block; font-size: 11px; color: #475569; margin-bottom: 8px; }
 .alfa-controller label strong { color: #2563eb; }
 .alfa-slider { width: 100%; cursor: pointer; }
 .alfa-labels { display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; margin-top: 5px; font-weight: bold; text-transform: uppercase; }
 
+/* Stili bottoni calcolo */
 .btn-calcola { width: 100%; background: #e2e8f0; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; font-weight: bold; color: #1e293b; cursor: pointer; margin-top: 10px; transition: 0.2s; }
 .btn-calcola:hover:not(:disabled) { background: #cbd5e1; }
 .btn-calcola:disabled { opacity: 0.5; cursor: not-allowed; }

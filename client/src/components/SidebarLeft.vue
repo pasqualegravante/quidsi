@@ -1,15 +1,17 @@
 <template>
   <div class="sidebar-left-wrapper">
     <div class="vertical-tabs">
-      <button :class="['tab-btn', { active: activeTab === 'funzioni' }]" @click="activeTab = 'funzioni'">Applica funzione</button>
-      <button :class="['tab-btn', { active: activeTab === 'interventi' }]" @click="activeTab = 'interventi'">Interventi Attivi</button>
-      <button :class="['tab-btn', { active: activeTab === 'archivio' }]" @click="activeTab = 'archivio'">Archivio Scenari</button>
+      <button :class="['tab-btn', { active: activeTab === 'funzioni' && !isCollapsed }]" @click="selectTab('funzioni')">Applica funzione</button>
+      <button :class="['tab-btn', { active: activeTab === 'interventi' && !isCollapsed }]" @click="selectTab('interventi')">Interventi Attivi</button>
+      <button :class="['tab-btn', { active: activeTab === 'archivio' && !isCollapsed }]" @click="selectTab('archivio')">Archivio Scenari</button>
     </div>
 
-    <div class="tab-content-area">
-      <TabFunzioni v-if="activeTab === 'funzioni'" />
-      <TabInterventi v-if="activeTab === 'interventi'" />
-      <TabArchivio v-if="activeTab === 'archivio'" />
+    <div class="tab-content-area" :class="{ 'is-collapsed': isCollapsed }">
+      <div class="tab-content-inner">
+        <TabFunzioni v-if="activeTab === 'funzioni'" @collapse="isCollapsed = true" />
+        <TabInterventi v-if="activeTab === 'interventi'" @collapse="isCollapsed = true" />
+        <TabArchivio v-if="activeTab === 'archivio'" @collapse="isCollapsed = true" />
+      </div>
     </div>
 
     <div v-if="dssStore.showSavePromptModal" class="dss-modal-overlay">
@@ -53,26 +55,55 @@ export default {
   },
   setup() {
     const dssStore = useDssStore();
-    // Il caricamento iniziale degli scenari rimane qui per sicurezza
     onMounted(() => { dssStore.fetchAllScenarios(); });
     return { dssStore };
   },
   data() {
     return {
-      activeTab: 'funzioni' // La tab di default all'apertura
+      activeTab: 'funzioni', 
+      isCollapsed: false     
     };
+  },
+  methods: {
+    selectTab(tabName) {
+      if (this.activeTab === tabName && !this.isCollapsed) {
+        this.isCollapsed = true;
+      } else {
+        this.activeTab = tabName;
+        this.isCollapsed = false;
+      }
+    }
   }
 }
 </script>
 
 <style scoped>
 .sidebar-left-wrapper { display: flex; height: 100%; background: #f8fafc; border-right: 1px solid #cbd5e1; z-index: 1000; position: relative; }
-.vertical-tabs { display: flex; flex-direction: column; width: 45px; background: #e2e8f0; border-right: 1px solid #cbd5e1; }
+.vertical-tabs { display: flex; flex-direction: column; width: 45px; background: #e2e8f0; border-right: 1px solid #cbd5e1; z-index: 10; }
 .tab-btn { writing-mode: vertical-rl; transform: rotate(180deg); padding: 20px 10px; cursor: pointer; border: none; background: transparent; font-weight: bold; color: #475569; border-left: 3px solid transparent; transition: 0.2s; letter-spacing: 1px; }
 .tab-btn:hover { background: rgba(255,255,255,0.5); }
 .tab-btn.active { background: white; border-left-color: #2563eb; color: #0f172a; }
 
-.tab-content-area { width: 320px; background: white; display: flex; flex-direction: column; }
+/* --- MODIFICATO: Animazione fluida (Slide) --- */
+.tab-content-area { 
+  width: 320px; 
+  background: white; 
+  transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); /* Slide smooth come burro */
+  overflow: hidden; /* Nasconde ciò che sfora durante l'animazione */
+}
+
+/* Stato collassato: larghezza zero */
+.tab-content-area.is-collapsed {
+  width: 0px;
+}
+
+/* Mantiene il layout interno fisso così il testo non va a capo mentre la larghezza si riduce */
+.tab-content-inner {
+  width: 320px;
+  display: flex; 
+  flex-direction: column;
+  height: 100%;
+}
 
 /* Stili Globali del Modale Preventivo */
 .dss-modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15,23,42,0.85); display: flex; justify-content: center; align-items: center; z-index: 5000; }

@@ -11,7 +11,7 @@ import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
 import { markRaw } from 'vue';
 import { useDssStore } from '../store/dssStore'; 
-import { STYLES, MAP_COLORS, getFeatureStyle } from '../utils/mapStyles'; // <-- IMPORTIAMO GLI STILI
+import { STYLES, MAP_COLORS, getFeatureStyle } from '../utils/mapStyles';
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -35,7 +35,8 @@ export default {
     return { 
       map: null, 
       graphLayer: null, 
-      loading: false 
+      loading: false,
+      resizeObserver: null // --- NUOVO: Sensore di ridimensionamento
     };
   },
 
@@ -50,6 +51,22 @@ export default {
   mounted() { 
     this.initMap(); 
     this.loadGraph(); 
+
+    // --- NUOVO --- Osserva se il div della mappa cambia dimensione (es. chiusura sidebar)
+    // e forza Leaflet a ricalcolare i "tiles" per non lasciare buchi vuoti
+    this.resizeObserver = new ResizeObserver(() => {
+      if (this.map) {
+        this.map.invalidateSize();
+      }
+    });
+    this.resizeObserver.observe(this.$refs.mapContainer);
+  },
+
+  // --- NUOVO --- Pulizia del sensore quando il componente viene distrutto
+  beforeUnmount() {
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
   },
 
   methods: {
@@ -78,9 +95,7 @@ export default {
             const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); 
             return [t[1], t[0]]; 
           },
-          
-          style: getFeatureStyle, // <-- USIAMO LA FUNZIONE ESTERNA
-          
+          style: getFeatureStyle,
           onEachFeature: (feature, layer) => {
             const uniqueId = String(feature.properties.id_arco || feature.properties.codice);
             const uid = String(L.stamp(layer));
@@ -122,7 +137,7 @@ export default {
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.uniqueDbId);
         if (selectedIds.has(id)) {
-           layer.setStyle(STYLES.selected); // <-- USIAMO LO STILE IMPORTATO
+           layer.setStyle(STYLES.selected); 
            layer.bringToFront();
         } else {
            this.graphLayer.resetStyle(layer);
@@ -150,7 +165,7 @@ export default {
       
       const ccMap = new Map();
       ccs.forEach((group, index) => {
-        const color = MAP_COLORS.ccPalette[index % MAP_COLORS.ccPalette.length]; // <-- USIAMO LA PALETTE IMPORTATA
+        const color = MAP_COLORS.ccPalette[index % MAP_COLORS.ccPalette.length]; 
         group.forEach(edgeId => ccMap.set(String(edgeId), color));
       });
 
