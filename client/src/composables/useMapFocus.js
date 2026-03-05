@@ -6,9 +6,6 @@ export function useMapFocus(mapRef, uidIndexRef, dssStore, emit) {
     
     const targetId = String(dbId);
     
-    // FILTRO CORRETTO: 
-    // Prendiamo il layer se l'ID è identico (es: "860")
-    // OPPURE se inizia con l'ID seguito da "_" (es: "860_1")
     const matchingLayers = Object.values(uidIndexRef.value).filter(l => {
       const currentId = String(l.feature.properties.uniqueDbId);
       return currentId === targetId || currentId.startsWith(targetId + '_');
