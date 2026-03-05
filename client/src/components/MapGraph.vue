@@ -9,10 +9,9 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
-import { ref, markRaw, onMounted, onBeforeUnmount, watch } from 'vue';
+import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useDssStore } from '../store/dssStore'; 
 import { getFeatureStyle } from '../utils/mapStyles';
-
 import { useMapMarkers } from '../composables/useMapMarkers';
 import { useMapSync } from '../composables/useMapSync';
 
@@ -28,25 +27,26 @@ export default {
   setup(props, { emit }) {
     const dssStore = useDssStore();
     const mapContainer = ref(null);
-    const map = ref(null);
-    const graphLayer = ref(null);
-    const uidIndex = ref({});
     const loading = ref(false);
+    
+    // shallowRef non rende reattivi i contenuti interni -> ZERO LAG
+    const map = shallowRef(null);
+    const graphLayer = shallowRef(null);
+    const uidIndex = shallowRef({}); 
     let resizeObserver = null;
 
+    // --- FUNZIONI CORE (Riportate qui per stabilità) ---
     const findLayerById = (dbId) => {
       return Object.values(uidIndex.value).find(l => String(l.feature.properties.uniqueDbId) === String(dbId));
     };
 
-    // Inizializziamo i composables
-    const { syncAll } = useMapSync(graphLayer, dssStore, uidIndex);
-    useMapMarkers(map, dssStore, findLayerById);
-
     const initMap = () => {
-      map.value = markRaw(L.map(mapContainer.value, {
+      if (map.value) return;
+      const leafletMap = L.map(mapContainer.value, {
         zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, minZoom: 12
-      }).setView([46.0665, 11.1216], 15));
+      }).setView([46.0665, 11.1216], 15);
 
+      map.value = leafletMap;
       L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map.value);
       L.control.zoom({ position: 'topleft' }).addTo(map.value);
       map.value.on('click', () => emit('clear-selection'));
@@ -57,7 +57,8 @@ export default {
       try {
         const res = await fetch('/grafo_web.geojson');
         const data = await res.json();
-        graphLayer.value = markRaw(L.geoJSON(data, {
+        
+        const geojson = L.geoJSON(data, {
           coordsToLatLng: (coords) => { 
             const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); 
             return [t[1], t[0]]; 
@@ -70,26 +71,22 @@ export default {
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
               emit('select-edge', { 
-                id, 
-                street: feature.properties.desvia, 
-                oneWay: feature.properties.sensouni, 
-                isClosed: !!feature.properties.isClosed,
-                isMulti: e.originalEvent.ctrlKey 
+                id, street: feature.properties.desvia, oneWay: feature.properties.sensouni, 
+                isClosed: !!feature.properties.isClosed, isMulti: e.originalEvent.ctrlKey 
               });
             });
           }
-        }));
+        });
+
+        graphLayer.value = geojson;
         graphLayer.value.addTo(map.value);
         dssStore.allEdges = data.features.map(f => ({ 
           id: String(f.properties.id_arco || f.properties.codice), 
           street: f.properties.desvia || 'Senza Nome' 
         }));
-      } catch (e) {
-        console.error("Errore GeoJSON:", e);
       } finally { loading.value = false; }
     };
 
-    // Logica di Zoom e Focus (Recuperata!)
     const zoomToEdgeGroup = (dbId) => {
       if (!dbId || !map.value) return;
       const targetId = String(dbId);
@@ -113,7 +110,12 @@ export default {
       }
     };
 
-    watch(() => props.focusEdgeId, (newId) => { if (newId) zoomToEdgeGroup(newId); });
+    // --- COMPOSABLES (Dedicati solo alla logica di ricoloramento e puntini) ---
+    useMapSync(graphLayer, dssStore, uidIndex);
+    useMapMarkers(map, dssStore, findLayerById);
+
+    // Watchers
+    watch(() => props.focusEdgeId, (id) => { if (id) zoomToEdgeGroup(id); });
 
     onMounted(() => {
       initMap();
