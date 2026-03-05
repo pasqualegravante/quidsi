@@ -10,6 +10,9 @@
           <p><strong>ID:</strong> <span>{{ selectedEdge.id }}</span></p>
           <p><strong>Via:</strong> <span>{{ selectedEdge.street }}</span></p>
           <p><strong>Dir:</strong> <span>{{ selectedEdge.oneWay === 1 ? 'Senso Unico' : 'Doppio Senso' }}</span></p>
+          
+          <p><strong>Limite velocità:</strong> <span>{{ selectedEdge.speedLimit || '50 km/h' }}</span></p>
+          <p><strong>Parametri stradali:</strong> <span>{{ selectedEdge.params || 'Nessuno' }}</span></p>
         </div>
 
         <div class="action-buttons">
@@ -19,6 +22,10 @@
           <button :class="isEdgeClosed ? 'btn-green-light' : 'btn-red-light'" @click="toggleArco(selectedEdge.id)">
             {{ isEdgeClosed ? 'Apri Tratto' : 'Chiudi Tratto' }}
           </button>
+
+          <button class="btn-dark-blue" @click="impostaPeso" title="(*) Next Version">
+            Imposta Peso
+          </button>
         </div>
       </div>
     </aside>
@@ -27,6 +34,8 @@
 
 <script>
 import { useDssStore } from '../store/dssStore';
+// Importo lo store della UI per lanciare il messaggio toast per il tasto "Imposta Peso"
+import { uiStore } from '../store/uiStore'; 
 
 export default {
   name: 'SidebarRight',
@@ -34,7 +43,7 @@ export default {
   emits: ['close'],
   setup() {
     const dssStore = useDssStore();
-    return { dssStore };
+    return { dssStore, uiStore };
   },
   computed: {
     isEdgeClosed() { return this.dssStore.activeClosureIds.includes(this.selectedEdge.id); },
@@ -46,7 +55,14 @@ export default {
   },
   methods: {
     toggleArco(id) { this.dssStore.toggleEdgeStatus(id); },
-    handleStreet(shouldClose) { this.dssStore.toggleStreetStatus(this.selectedEdge.street, shouldClose); }
+    handleStreet(shouldClose) { this.dssStore.toggleStreetStatus(this.selectedEdge.street, shouldClose); },
+    
+    // --- NUOVO --- Metodo per il bottone Imposta Peso
+    impostaPeso() {
+      // Dato che il D2 lo segnala come "Next Version", per ora mostriamo un toast informativo
+      this.uiStore.showToast("Funzionalità Imposta Peso in arrivo nella Next Version!", "info");
+      // await this.dssStore.editEdgeWeight(this.selectedEdge.id, nuovoPeso);
+    }
   }
 }
 </script>
@@ -61,6 +77,11 @@ export default {
 .btn-green { background: #22c55e; color: white; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; }
 .btn-red-light { background: #fee2e2; color: #991b1b; padding: 12px; border-radius: 8px; border: 1px solid #ef4444; cursor: pointer; font-weight: bold; }
 .btn-green-light { background: #dcfce7; color: #166534; padding: 12px; border-radius: 8px; border: 1px solid #22c55e; cursor: pointer; font-weight: bold; }
+
+/* --- NUOVO --- Stile per il bottone Imposta Peso coerente con il mockup */
+.btn-dark-blue { background: #0f172a; color: white; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; transition: background-color 0.2s; }
+.btn-dark-blue:hover { background: #1e293b; }
+
 .slide-right-enter-active, .slide-right-leave-active { transition: transform 0.3s ease; }
 .slide-right-enter-from, .slide-right-leave-to { transform: translateX(120%); }
 </style>
