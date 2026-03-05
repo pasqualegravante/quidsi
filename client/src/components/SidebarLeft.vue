@@ -13,9 +13,6 @@
         <TabArchivio v-if="activeTab === 'archivio'" @collapse="isCollapsed = true" />
       </div>
     </div>
-
-    <SavePromptModal />
-
   </div>
 </template>
 
@@ -25,15 +22,13 @@ import { onMounted } from 'vue';
 import TabFunzioni from './tabs/TabFunzioni.vue';
 import TabInterventi from './tabs/TabInterventi.vue';
 import TabArchivio from './tabs/TabArchivio.vue';
-import SavePromptModal from './modals/SavePromptModal.vue'; // <-- Importiamo il modale
 
 export default {
   name: 'SidebarLeft',
   components: {
     TabFunzioni,
     TabInterventi,
-    TabArchivio,
-    SavePromptModal
+    TabArchivio
   },
   setup() {
     const dssStore = useDssStore();

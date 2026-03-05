@@ -31,6 +31,16 @@
           @close="uiStore.setRightSidebar(false)"
         />
       </main>
+      
+      <SavePromptModal v-if="uiStore.activeModal === 'savePrompt'" />
+      
+      <ConfirmDeleteModal 
+        v-if="uiStore.activeModal === 'deleteScenario'"
+        :show="true" 
+        :label="uiStore.modalData?.label"
+        @cancel="uiStore.closeModal"
+        @confirm="dssStore.executeGlobalDelete"
+      />
     </template>
   </div>
 </template>
@@ -42,12 +52,17 @@ import SidebarRight from './components/SidebarRight.vue';
 import MapGraph from './components/MapGraph.vue';
 import MapLegend from './components/MapLegend.vue';
 import Login from './components/Login.vue'; 
+import ConfirmDeleteModal from './components/modals/ConfirmDeleteModal.vue';
+import SavePromptModal from './components/modals/SavePromptModal.vue';
 import { useDssStore } from './store/dssStore';
 import { useUiStore } from './store/uiStore';
 
 export default {
   name: 'App',
-  components: { Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login },
+  components: { 
+    Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login, 
+    ConfirmDeleteModal, SavePromptModal 
+  },
   setup() {
     const dssStore = useDssStore();
     const uiStore = useUiStore();

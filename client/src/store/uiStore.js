@@ -5,6 +5,8 @@ export const useUiStore = defineStore('ui', {
     toasts: [],
     isCalculating: false,
     isRightSidebarOpen: false,
+    activeModal: null, 
+    modalData: null    
   }),
   actions: {
     showToast(message, type = 'info') {
@@ -19,6 +21,14 @@ export const useUiStore = defineStore('ui', {
     },
     setRightSidebar(isOpen) {
       this.isRightSidebarOpen = isOpen;
+    },
+    openModal(name, data = null) {
+      this.activeModal = name;
+      this.modalData = data;
+    },
+    closeModal() {
+      this.activeModal = null;
+      this.modalData = null;
     }
   }
 });

@@ -23,37 +23,30 @@
           @delete="openDeleteModal"
           @save-info="handleSaveInfo"
           @save-state="dssStore.saveCurrentScenario" 
-        /></ul>
+        />
+      </ul>
     </div>
-
-    <ConfirmDeleteModal 
-      :show="showDeleteModal"
-      :label="scenarioToDelete?.label"
-      @cancel="showDeleteModal = false"
-      @confirm="executeDelete"
-    />
   </div>
 </template>
 
 <script>
 import { useDssStore } from '../../store/dssStore';
-import ScenarioSearch from './scenario/ScenarioSearch.vue'; // Assicurati che l'import rispetti il tuo nome cartella
+import { useUiStore } from '../../store/uiStore';
+import ScenarioSearch from './scenario/ScenarioSearch.vue'; 
 import ScenarioItem from './scenario/ScenarioItem.vue';
-import ConfirmDeleteModal from '../modals/ConfirmDeleteModal.vue';
 
 export default {
   name: 'TabArchivio',
-  components: { ScenarioSearch, ScenarioItem, ConfirmDeleteModal },
+  components: { ScenarioSearch, ScenarioItem },
   emits: ['collapse'],
   setup() {
     const dssStore = useDssStore();
-    return { dssStore };
+    const uiStore = useUiStore();
+    return { dssStore, uiStore };
   },
   data() {
     return {
-      filterScenario: '',
-      showDeleteModal: false,
-      scenarioToDelete: null
+      filterScenario: ''
     };
   },
   computed: {
@@ -69,15 +62,7 @@ export default {
       await this.dssStore.updateScenarioInfo(id, label, desc);
     },
     openDeleteModal(scen) {
-      this.scenarioToDelete = scen;
-      this.showDeleteModal = true;
-    },
-    async executeDelete() {
-      if (this.scenarioToDelete) {
-        await this.dssStore.deleteScenario(this.scenarioToDelete.id);
-        this.showDeleteModal = false;
-        this.scenarioToDelete = null;
-      }
+      this.uiStore.openModal('deleteScenario', scen); // Delega l'apertura all'orchestratore globale
     }
   }
 }

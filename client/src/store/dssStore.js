@@ -11,13 +11,11 @@ export const useDssStore = defineStore('dss', () => {
   const scenario = useScenarioStore();
   const ui = useUiStore();
 
-  // PROPRIETÀ SCRIVIBILI (Getter e Setter completi)
+  // PROPRIETÀ SCRIVIBILI
   const allEdges = computed({ get: () => map.allEdges, set: (val) => { map.allEdges = val; } });
   const mapFocusId = computed({ get: () => map.mapFocusId, set: (val) => { map.mapFocusId = val; } });
   const alfa = computed({ get: () => map.alfa, set: (val) => { map.alfa = val; } });
   const selectionMode = computed({ get: () => map.selectionMode, set: (val) => { map.selectionMode = val; } });
-  
-  // CORREZIONE BUG #1: selectedEdges scrivibile per via della SearchBar
   const selectedEdges = computed({ get: () => map.selectedEdges, set: (val) => { map.selectedEdges = val; } });
 
   // GETTER SOLA LETTURA
@@ -29,40 +27,18 @@ export const useDssStore = defineStore('dss', () => {
   const activeClosureIds = computed(() => map.activeClosureIds);
   const dijkstraPath = computed(() => map.dijkstraPath);
   const connectedComponents = computed(() => map.connectedComponents);
-  const showSavePromptModal = computed(() => scenario.showSavePromptModal);
   const routingStartPoint = computed(() => map.routingStartPoint);
   const routingEndPoint = computed(() => map.routingEndPoint);
   const isCalculating = computed(() => ui.isCalculating);
   const pendingAction = computed(() => scenario.pendingAction);
   const activeClosuresObjects = computed(() => map.activeClosuresObjects);
 
-  // AZIONI (Ponte)
+  // AZIONI
   async function performLogin(e, p) { return auth.performLogin(e, p); }
   function handleEdgeSelection(p) { return map.handleEdgeSelection(p); }
   function clearMapFocus() { map.clearMapFocus(); }
   function resetSelection() { map.resetSelection(); }
-  function processMapClick(edgePayload) {
-    if (map.selectionMode) {
-      map.setRoutingPoint(edgePayload);
-    } else {
-      map.handleEdgeSelection(edgePayload);
-      ui.setRightSidebar(map.selectedEdges.length > 0);
-    }
-  }
-
-  function clearMapSelection() {
-    if (!map.selectionMode) {
-      map.resetSelection();
-      ui.setRightSidebar(false);
-    }
-  }
-
-  function processSearchSelect(segmentsPayloads) {
-    map.selectedEdges = segmentsPayloads;
-    ui.setRightSidebar(true);
-  }
   
-  // CORREZIONE BUG #3: Mappata la funzione per la modalità selezione A/B
   function setSelectionMode(m) { map.selectionMode = (map.selectionMode === m ? null : m); }
   function setRoutingPoint(p) { return map.setRoutingPoint(p); }
   
@@ -89,14 +65,44 @@ export const useDssStore = defineStore('dss', () => {
     if (success) scenario.isModified = true;
   }
 
+  function processMapClick(edgePayload) {
+    if (map.selectionMode) {
+      map.setRoutingPoint(edgePayload);
+    } else {
+      map.handleEdgeSelection(edgePayload);
+      ui.setRightSidebar(map.selectedEdges.length > 0);
+    }
+  }
+
+  function clearMapSelection() {
+    if (!map.selectionMode) {
+      map.resetSelection();
+      ui.setRightSidebar(false);
+    }
+  }
+
+  function processSearchSelect(segmentsPayloads) {
+    map.selectedEdges = segmentsPayloads;
+    ui.setRightSidebar(true);
+  }
+
+  async function executeGlobalDelete() {
+    const scenarioId = ui.modalData?.id;
+    if (scenarioId) {
+      await scenario.deleteScenario(scenarioId);
+      ui.closeModal();
+    }
+  }
+
   return {
     isAuthenticated, uid, scenarios, activeScenario, isModified,
     selectedEdges, activeClosureIds, dijkstraPath, connectedComponents,
-    showSavePromptModal, routingStartPoint, routingEndPoint,
+    routingStartPoint, routingEndPoint,
     allEdges, mapFocusId, alfa, selectionMode, isCalculating, pendingAction, activeClosuresObjects,
     
     performLogin, handleEdgeSelection, clearMapFocus, resetSelection, setSelectionMode, setRoutingPoint,
     fetchAllScenarios, selectScenario, saveCurrentScenario, resolvePendingAction, createScenario, updateScenarioInfo, duplicateScenario, deleteScenario,
-    calculateDijkstra, calculateConnessione, toggleStreetStatus, toggleEdgeStatus, processMapClick, clearMapSelection, processSearchSelect
+    calculateDijkstra, calculateConnessione, toggleStreetStatus, toggleEdgeStatus,
+    processMapClick, clearMapSelection, processSearchSelect, executeGlobalDelete
   };
 });

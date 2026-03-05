@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { ScenarioService } from '../services/scenarioService';
+import { ScenarioService } from '../services/scenarioService'; 
 import { useUiStore } from './uiStore';
 import { useAuthStore } from './authStore';
 import { useMapStore } from './mapStore';
@@ -9,8 +9,7 @@ export const useScenarioStore = defineStore('scenario', {
     scenarios: [],
     activeScenario: null,
     isModified: false,
-    pendingAction: null, 
-    showSavePromptModal: false 
+    pendingAction: null 
   }),
   actions: {
     async fetchAllScenarios(uid) {
@@ -21,7 +20,8 @@ export const useScenarioStore = defineStore('scenario', {
     async selectScenario(scen_id) {
       if (this.isModified) {
         this.pendingAction = { type: 'select', targetId: scen_id };
-        this.showSavePromptModal = true;
+        const ui = useUiStore();
+        ui.openModal('savePrompt');
         return; 
       }
       await this._executeSelectScenario(scen_id);
@@ -51,9 +51,10 @@ export const useScenarioStore = defineStore('scenario', {
       }
     },
 
-    // CORREZIONE BUG #5: Gestisce sia select che duplicate
     async resolvePendingAction(saveFirst) {
-      this.showSavePromptModal = false; 
+      const ui = useUiStore();
+      ui.closeModal(); 
+      
       const action = this.pendingAction;
       this.pendingAction = null; 
 
@@ -63,8 +64,8 @@ export const useScenarioStore = defineStore('scenario', {
         this.isModified = false; 
       }
 
-      if (action.type === 'select') await this._executeSelectScenario(action.targetId);
-      if (action.type === 'duplicate') await this._executeDuplicateScenario(action.targetId);
+      if (action && action.type === 'select') await this._executeSelectScenario(action.targetId);
+      if (action && action.type === 'duplicate') await this._executeDuplicateScenario(action.targetId);
     },
 
     async createScenario() {
@@ -85,10 +86,10 @@ export const useScenarioStore = defineStore('scenario', {
     },
 
     async duplicateScenario(scen_id) {
-      // CORREZIONE BUG #5: Intercetta modifiche prima di duplicare
       if (this.isModified && this.activeScenario && this.activeScenario.id === scen_id) {
         this.pendingAction = { type: 'duplicate', targetId: scen_id };
-        this.showSavePromptModal = true;
+        const ui = useUiStore();
+        ui.openModal('savePrompt');
         return;
       }
       await this._executeDuplicateScenario(scen_id);

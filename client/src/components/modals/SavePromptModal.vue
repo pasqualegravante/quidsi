@@ -1,5 +1,5 @@
 <template>
-  <div v-if="dssStore.showSavePromptModal" class="dss-modal-overlay">
+  <div class="dss-modal-overlay">
     <div class="dss-modal">
       <h3>
         {{ dssStore.pendingAction?.type === 'select' ? 'SALVARE PRIMA DI CAMBIARE SCENARIO' : 'SALVARE PRIMA DI DUPLICARE SCENARIO' }}
@@ -37,7 +37,6 @@ export default {
 </script>
 
 <style scoped>
-/* Stili Globali del Modale Preventivo isolati qui */
 .dss-modal-overlay { 
   position: fixed; 
   top: 0; 
@@ -48,7 +47,7 @@ export default {
   display: flex; 
   justify-content: center; 
   align-items: center; 
-  z-index: 9999; /* Z-index altissimo per stare sopra a tutto */
+  z-index: 9999; 
 }
 
 .dss-modal { 
@@ -77,27 +76,8 @@ export default {
   gap: 20px; 
 }
 
-.btn-annulla { 
-  background: transparent; 
-  color: white; 
-  border: 1px solid #cbd5e1; 
-  padding: 10px 25px; 
-  border-radius: 6px; 
-  cursor: pointer; 
-  font-weight: bold; 
-  transition: 0.2s; 
-}
-
-.btn-salva { 
-  background: #2563eb; 
-  color: white; 
-  border: none; 
-  padding: 10px 25px; 
-  border-radius: 6px; 
-  cursor: pointer; 
-  font-weight: bold; 
-  transition: 0.2s; 
-}
+.btn-annulla { background: transparent; color: white; border: 1px solid #cbd5e1; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+.btn-salva { background: #2563eb; color: white; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
 
 .btn-annulla:hover { background: rgba(255,255,255,0.1); }
 .btn-salva:hover { background: #1d4ed8; }
