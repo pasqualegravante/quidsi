@@ -19,7 +19,7 @@ const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
 export default {
   name: 'MapGraph',
   props: { closedEdges: Array, focusEdgeId: String },
-  emits: ['select-edge', 'clear-selection'], // --- Aggiunto clear-selection
+  emits: ['select-edge', 'clear-selection', 'search-select'], // --- Aggiunto search-select
 
   setup() { 
     const dssStore = useDssStore(); 
@@ -35,7 +35,6 @@ export default {
   },
 
   watch: {
-    // --- NUOVO --- Ora la mappa ascolta attivamente lo store per le linee gialle!
     'dssStore.selectedEdges': { handler(newEdges) { this.syncSelection(newEdges); }, deep: true },
     closedEdges: { handler(newIds) { this.syncClosures(newIds); }, deep: true },
     'dssStore.connectedComponents': { handler(newCCs) { this.renderConnectedComponents(newCCs); }, deep: true },
@@ -58,7 +57,6 @@ export default {
       this.poiLayer = markRaw(L.layerGroup()).addTo(this.map); 
       L.control.zoom({ position: 'topleft' }).addTo(this.map);
       
-      // --- MODIFICATO --- Comunichiamo al padre il click a vuoto
       this.map.on('click', () => { this.$emit('clear-selection'); });
     },
 
@@ -82,12 +80,11 @@ export default {
         const geojson = L.geoJSON(data, {
           coordsToLatLng: (coords) => { const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); return [t[1], t[0]]; },
           
-          // --- NUOVO --- Regole gerarchiche assolute per i colori base
           style: (feature) => {
             if (feature.properties.isClosed) return { color: '#ef4444', weight: 6, dashArray: '6, 6', opacity: 1 };
             if (feature.properties.ccColor) return { color: feature.properties.ccColor, weight: 8, opacity: 0.9, dashArray: '' };
             if (feature.properties.isRoute) return { color: '#10b981', weight: 8, opacity: 1 };
-            return { color: '#3b82f6', weight: 3, opacity: 0.6 }; // Default blu
+            return { color: '#3b82f6', weight: 3, opacity: 0.6 }; 
           },
           
           onEachFeature: (feature, layer) => {
@@ -98,7 +95,6 @@ export default {
 
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
-              // Invia solo l'evento, la mappa non colora più nulla da sola!
               this.$emit('select-edge', { 
                 id: uniqueId, 
                 street: feature.properties.desvia, 
@@ -122,7 +118,6 @@ export default {
       } catch (e) { console.error("Map Load Error:", e); } finally { this.loading = false; }
     },
 
-    // --- NUOVO --- Metodo Reattivo per la linea gialla
     syncSelection(selectedEdges) {
       if (!this.graphLayer) return;
       const selectedIds = new Set(selectedEdges.map(e => String(e.id)));
@@ -130,11 +125,9 @@ export default {
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.uniqueDbId);
         if (selectedIds.has(id)) {
-           // Forza colore giallo se è selezionato
            layer.setStyle({ color: '#f59e0b', weight: 8, opacity: 1, dashArray: '' });
            layer.bringToFront();
         } else {
-           // Altrimenti ripristina il suo colore originale (rosso o blu)
            this.graphLayer.resetStyle(layer);
         }
       });
@@ -147,9 +140,8 @@ export default {
       
       Object.values(this.uidIndex).forEach(layer => {
         const id = String(layer.feature.properties.uniqueDbId);
-        layer.feature.properties.isClosed = setIds.has(id); // Salva lo stato
+        layer.feature.properties.isClosed = setIds.has(id); 
         
-        // Se non è attualmente giallo/selezionato, applica la grafica base
         if (!selectedIds.has(id)) {
            this.graphLayer.resetStyle(layer);
         }
@@ -192,11 +184,31 @@ export default {
       });
     },
 
+    // --- MODIFICATO --- Ora raggruppa tutti i frammenti della via per centrare perfettamente la visuale
     zoomToEdgeGroup(dbId) {
       const targetId = String(dbId);
-      const layer = Object.values(this.uidIndex).find(l => String(l.feature.properties.uniqueDbId) === targetId);
-      if (layer) {
-        this.map.flyToBounds(layer.getBounds(), { maxZoom: 18, duration: 1.2 });
+      
+      // Troviamo TUTTI i layer (i pezzetti di strada) che appartengono alla via cercata
+      const matchingLayers = Object.values(this.uidIndex).filter(l => {
+         const id = String(l.feature.properties.uniqueDbId);
+         return id === targetId || id.startsWith(targetId + '_');
+      });
+      
+      if (matchingLayers.length > 0) {
+        // 1. Calcoliamo un contenitore spaziale (bounds) per raggrupparli e centrarli tutti insieme
+        const group = L.featureGroup(matchingLayers);
+        this.map.flyToBounds(group.getBounds(), { maxZoom: 17, duration: 1.2, padding: [40, 40] });
+
+        // 2. Prepariamo i dati per dire allo Store di selezionarli visivamente e aprire la sidebar
+        const payloads = matchingLayers.map(layer => ({
+          id: String(layer.feature.properties.uniqueDbId),
+          street: layer.feature.properties.desvia,
+          oneWay: layer.feature.properties.sensouni,
+          isClosed: !!layer.feature.properties.isClosed,
+          isMulti: true 
+        }));
+
+        this.$emit('search-select', payloads);
       }
     }
   }

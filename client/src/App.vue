@@ -21,6 +21,7 @@
             :endPoint="dssStore.routingEndPoint"
             @select-edge="handleEdgeSelect"
             @clear-selection="handleClearSelection"
+            @search-select="handleSearchSelect"
           />
           <MapLegend />
         </div>
@@ -65,12 +66,16 @@ export default {
         this.isRightSidebarOpen = this.dssStore.selectedEdges.length > 0;
       }
     },
-    // --- NUOVO --- Azzera tutto se si clicca nel vuoto
     handleClearSelection() {
       if (!this.dssStore.selectionMode) {
         this.dssStore.selectedEdges = [];
         this.isRightSidebarOpen = false;
       }
+    },
+    // --- NUOVO --- Gestisce la selezione di massa quando cerchi una via dalla Navbar
+    handleSearchSelect(segmentsPayloads) {
+      this.dssStore.selectedEdges = segmentsPayloads;
+      this.isRightSidebarOpen = true; // Apre automaticamente la sidebar destra
     }
   }
 };
