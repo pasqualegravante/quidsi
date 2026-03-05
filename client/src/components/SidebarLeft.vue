@@ -150,6 +150,29 @@
         </div>
       </div>
     </div>
+
+    <div v-if="dssStore.showSavePromptModal" class="dss-modal-overlay">
+      <div class="dss-modal">
+        <h3>{{ dssStore.pendingAction?.type === 'select' ? 'SALVARE PRIMA DI CAMBIARE SCENARIO' : 'SALVARE PRIMA DI DUPLICARE SCENARIO' }}</h3>
+        
+        <p v-if="dssStore.pendingAction?.type === 'select'">
+          Salva eventuali modifiche di "{{ dssStore.activeScenario?.label || 'questo scenario' }}" prima di lavorare su un altro scenario, oppure scarta le modifiche.
+        </p>
+        <p v-else>
+          Salva eventuali modifiche di "{{ dssStore.activeScenario?.label || 'questo scenario' }}" prima di duplicare, oppure una vecchia versione verrà duplicata.
+        </p>
+
+        <div class="modal-footer">
+          <button class="btn-annulla" @click="dssStore.resolvePendingAction(false)">
+            {{ dssStore.pendingAction?.type === 'select' ? 'SCARTA' : 'IGNORA' }}
+          </button>
+          <button class="btn-salva" @click="dssStore.resolvePendingAction(true)">
+            SALVA
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
@@ -304,4 +327,8 @@ export default {
 .btn-elimina { background: #ef4444; color: white; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
 .btn-annulla:hover { background: rgba(255,255,255,0.1); }
 .btn-elimina:hover { background: #dc2626; }
+
+/* --- NUOVO --- Stile per il bottone Salva nel nuovo modale */
+.btn-salva { background: #2563eb; color: white; border: none; padding: 10px 25px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+.btn-salva:hover { background: #1d4ed8; }
 </style>

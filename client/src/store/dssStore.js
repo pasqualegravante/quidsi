@@ -19,7 +19,12 @@ export const useDssStore = defineStore('dss', {
     routingStartPoint: null, 
     routingEndPoint: null,
     selectionMode: null, 
-    mapFocusId: null
+    mapFocusId: null,
+
+    // --- NUOVO ---
+    // Variabili di stato per gestire i modali custom di salvataggio
+    pendingAction: null, // Oggetto per tracciare cosa l'utente stava cercando di fare: { type: 'select' | 'duplicate', targetId: string }
+    showSavePromptModal: false // Flag per mostrare/nascondere il modale
   }),
 
   getters: {
@@ -42,14 +47,20 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
+    // --- MODIFICATO ---
+    // Ora intercetta la richiesta. Se ci sono modifiche, blocca tutto e apre il modale.
     async selectScenario(scen_id) {
       if (this.isModified) {
-        if (!confirm("Hai modifiche non salvate. Salvare prima di cambiare?")) {
-           // Ignora e procedi
-        } else {
-           await this.saveCurrentScenario();
-        }
+        this.pendingAction = { type: 'select', targetId: scen_id };
+        this.showSavePromptModal = true;
+        return; // Blocca l'esecuzione, aspetta l'input del modale
       }
+      await this._executeSelectScenario(scen_id);
+    },
+
+    // --- NUOVO ---
+    // Metodo interno che esegue effettivamente la chiamata API di selezione (chiamato direttamente o dopo il modale)
+    async _executeSelectScenario(scen_id) {
       const res = await ApiService.selectScenario(this.uid, scen_id);
       this.activeScenario = res.scenario;
       this.activeClosureIds = res.scenario.closed_segments || [];
@@ -70,16 +81,55 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
+    // --- MODIFICATO ---
+    // Intercetta la duplicazione. Se ci sono modifiche, blocca tutto e apre il modale.
     async duplicateScenario(scen_id) {
       if (this.isModified) {
-        if (confirm("Salvare le modifiche attuali prima di duplicare?")) {
-          await this.saveCurrentScenario();
-        }
+        this.pendingAction = { type: 'duplicate', targetId: scen_id };
+        this.showSavePromptModal = true;
+        return; // Blocca l'esecuzione
       }
+      await this._executeDuplicateScenario(scen_id);
+    },
+
+    // --- NUOVO ---
+    // Metodo interno che esegue effettivamente la chiamata API di duplicazione
+    async _executeDuplicateScenario(scen_id) {
       const res = await ApiService.duplicateScenario(this.uid, scen_id);
       if (res.scen) {
         await this.fetchAllScenarios();
         uiStore.showToast("Scenario duplicato!");
+      }
+    },
+
+    // --- NUOVO ---
+    // Risolve l'azione lasciata in sospeso (chiamata dai bottoni del modale in SidebarLeft.vue)
+    async resolvePendingAction(saveFirst) {
+      this.showSavePromptModal = false; 
+      
+      const action = this.pendingAction;
+      this.pendingAction = null; 
+
+      if (saveFirst) {
+        // Se preme SALVA, salviamo nel DB.
+        await this.saveCurrentScenario(); 
+      } else {
+        // Se preme SCARTA o IGNORA, resettiamo il flag di modifica
+        this.isModified = false; 
+        
+        // BUG FIX: Se stavamo duplicando e abbiamo ignorato le modifiche, 
+        // dobbiamo ricaricare lo scenario attivo per far sparire le modifiche dal grafo visivo
+        // (visto che l'utente ha esplicitamente scelto di "scartarle/ignorarle").
+        if (action.type === 'duplicate' && this.activeScenario) {
+            await this._executeSelectScenario(this.activeScenario.id);
+        }
+      }
+
+      // Infine, eseguiamo l'azione originariamente richiesta
+      if (action.type === 'select') {
+        await this._executeSelectScenario(action.targetId);
+      } else if (action.type === 'duplicate') {
+        await this._executeDuplicateScenario(action.targetId);
       }
     },
 
@@ -91,7 +141,6 @@ export const useDssStore = defineStore('dss', {
       }
     },
 
-    // NUOVO: Aggiorna metadati scenario (Edit Mode)
     async updateScenarioInfo(scen_id, label, description) {
       uiStore.isCalculating = true;
       try {
@@ -150,7 +199,7 @@ export const useDssStore = defineStore('dss', {
         const res = await ApiService.calculateDijkstra(this.uid, this.activeScenario.id, { 
           start: startId, 
           end: endId, 
-          alfa: this.alfa // Passiamo il parametro al server
+          alfa: this.alfa 
         });
         this.dijkstraPath = res.edges;
       } finally { uiStore.isCalculating = false; }
