@@ -80,7 +80,7 @@ export default {
     // Esegue la funzione selezionata in base alla scelta dell'utente
     eseguiCalcolo() {
       if (this.selectedFunction === 'dijkstra') {
-        this.dssStore.calculateDijkstra(this.dssStore.routingStartPoint.id, this.dssStore.routingEndPoint.id);
+        this.dssStore.calculateDijkstra(); 
       } else if (this.selectedFunction === 'connessione') {
         this.dssStore.calculateConnessione();
       }
