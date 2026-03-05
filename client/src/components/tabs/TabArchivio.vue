@@ -37,8 +37,8 @@
 
 <script>
 import { useDssStore } from '../../store/dssStore';
-import ScenarioSearch from './Scenario/ScenarioSearch.vue';
-import ScenarioItem from './Scenario/ScenarioItem.vue';
+import ScenarioSearch from './scenario/ScenarioSearch.vue';
+import ScenarioItem from './scenario/ScenarioItem.vue';
 import ConfirmDeleteModal from '../modals/ConfirmDeleteModal.vue';
 
 export default {
