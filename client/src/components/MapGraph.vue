@@ -19,7 +19,7 @@ const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
 export default {
   name: 'MapGraph',
   props: { closedEdges: Array, focusEdgeId: String },
-  emits: ['select-edge', 'clear-selection', 'search-select'], // --- Aggiunto search-select
+  emits: ['select-edge', 'clear-selection', 'search-select'],
 
   setup() { 
     const dssStore = useDssStore(); 
@@ -184,22 +184,20 @@ export default {
       });
     },
 
-    // --- MODIFICATO --- Ora raggruppa tutti i frammenti della via per centrare perfettamente la visuale
+    // --- MODIFICATO (BUGFIX 2 & 3): Normalizzazione stringa e reset del focus ---
     zoomToEdgeGroup(dbId) {
-      const targetId = String(dbId);
+      if (!dbId) return;
+      const targetId = String(dbId); // Assicuriamo che sia stringa
       
-      // Troviamo TUTTI i layer (i pezzetti di strada) che appartengono alla via cercata
       const matchingLayers = Object.values(this.uidIndex).filter(l => {
          const id = String(l.feature.properties.uniqueDbId);
          return id === targetId || id.startsWith(targetId + '_');
       });
       
       if (matchingLayers.length > 0) {
-        // 1. Calcoliamo un contenitore spaziale (bounds) per raggrupparli e centrarli tutti insieme
         const group = L.featureGroup(matchingLayers);
         this.map.flyToBounds(group.getBounds(), { maxZoom: 17, duration: 1.2, padding: [40, 40] });
 
-        // 2. Prepariamo i dati per dire allo Store di selezionarli visivamente e aprire la sidebar
         const payloads = matchingLayers.map(layer => ({
           id: String(layer.feature.properties.uniqueDbId),
           street: layer.feature.properties.desvia,
@@ -209,6 +207,9 @@ export default {
         }));
 
         this.$emit('search-select', payloads);
+        
+        // IMPORTANTE: Resettiamo il focus, permettendo zoom successivi
+        this.dssStore.clearMapFocus(); 
       }
     }
   }

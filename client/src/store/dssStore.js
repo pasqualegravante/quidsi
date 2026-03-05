@@ -44,18 +44,39 @@ export const useDssStore = defineStore('dss', {
       ];
     },
 
-    // --- ASSICURA SINCRONIA PERFETTA DEL NUMERO ARCHI ---
-    handleEdgeSelection(edgePayload) {
-      if (edgePayload.isMulti) {
-        const index = this.selectedEdges.findIndex(e => e.id === edgePayload.id);
-        if (index > -1) {
-          this.selectedEdges.splice(index, 1); // Rimuove se c'era
+    // --- MODIFICATO (BUGFIX 1 & 3): Normalizzazione ID e logica toggle sicura ---
+    handleEdgeSelection(payload) {
+      // Trasformiamo sempre l'ID in stringa per evitare bug di tipo (int vs string) col DB
+      const edgeId = String(payload.id);
+      const edgeData = { ...payload, id: edgeId };
+
+      if (payload.isMulti) {
+        const index = this.selectedEdges.findIndex(e => String(e.id) === edgeId);
+        if (index === -1) {
+          this.selectedEdges.push(edgeData);
         } else {
-          this.selectedEdges.push(edgePayload); // Aggiunge se non c'era
+          this.selectedEdges.splice(index, 1);
         }
       } else {
-        this.selectedEdges = [edgePayload]; // Reset normale
+        // Selezione singola: se clicco lo stesso che è già selezionato, lo deseleziono
+        if (this.selectedEdges.length === 1 && String(this.selectedEdges[0].id) === edgeId) {
+          this.selectedEdges = [];
+        } else {
+          this.selectedEdges = [edgeData];
+        }
       }
+    },
+
+    // --- NUOVO (BUGFIX 2): Resetta il focus della mappa ---
+    clearMapFocus() {
+      this.mapFocusId = null;
+    },
+
+    // --- NUOVO: Pulizia totale usata ai cambi scenario ---
+    resetSelection() {
+      this.selectedEdges = [];
+      this.dijkstraPath = [];
+      this.connectedComponents = [];
     },
 
     async fetchAllScenarios() {
@@ -87,11 +108,9 @@ export const useDssStore = defineStore('dss', {
       this.activeClosureIds = res.scenario.closed_segments || [];
       this.alfa = res.scenario.alfa || 0.5;
       this.isModified = false;
-      this.connectedComponents = [];
-      this.dijkstraPath = [];
+      this.resetSelection(); // Utilizziamo la nuova funzione di reset
       this.routingStartPoint = null;
       this.routingEndPoint = null;
-      this.selectedEdges = []; // Pulisce la selezione!
     },
 
     async saveCurrentScenario() {
