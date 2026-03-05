@@ -9,9 +9,12 @@
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
-import { markRaw } from 'vue';
+import { ref, markRaw, onMounted, onBeforeUnmount, watch } from 'vue';
 import { useDssStore } from '../store/dssStore'; 
-import { STYLES, MAP_COLORS, getFeatureStyle } from '../utils/mapStyles';
+import { getFeatureStyle } from '../utils/mapStyles';
+
+import { useMapMarkers } from '../composables/useMapMarkers';
+import { useMapSync } from '../composables/useMapSync';
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -19,232 +22,84 @@ const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
 
 export default {
   name: 'MapGraph',
-  props: { closedEdges: Array, focusEdgeId: String },
+  props: { focusEdgeId: String },
   emits: ['select-edge', 'clear-selection', 'search-select'],
 
-  setup() { 
-    const dssStore = useDssStore(); 
-    return { dssStore }; 
-  },
+  setup(props, { emit }) {
+    const dssStore = useDssStore();
+    const mapContainer = ref(null);
+    const map = ref(null);
+    const graphLayer = ref(null);
+    const uidIndex = ref({});
+    const loading = ref(false);
+    let resizeObserver = null;
 
-  created() {
-    this.uidIndex = {};   
-  },
-
-  data() {
-    return { 
-      map: null, 
-      graphLayer: null, 
-      loading: false,
-      resizeObserver: null,
-      // Layer vettoriali per i punti A e B
-      startPointLayer: null,
-      endPointLayer: null
+    const findLayerById = (dbId) => {
+      return Object.values(uidIndex.value).find(l => String(l.feature.properties.uniqueDbId) === String(dbId));
     };
-  },
 
-  watch: {
-    'dssStore.selectedEdges': { handler(newEdges) { this.syncSelection(newEdges); }, deep: true },
-    closedEdges: { handler(newIds) { this.syncClosures(newIds); }, deep: true },
-    'dssStore.connectedComponents': { handler(newCCs) { this.renderConnectedComponents(newCCs); }, deep: true },
-    'dssStore.dijkstraPath': { handler(newPath) { this.syncRoutePath(newPath); }, deep: true },
-    focusEdgeId(newId) { if (newId) this.zoomToEdgeGroup(newId); },
-    
-    // Watchers per i marker A e B
-    'dssStore.routingStartPoint': { handler() { this.updateRoutingMarkers(); }, deep: true },
-    'dssStore.routingEndPoint': { handler() { this.updateRoutingMarkers(); }, deep: true }
-  },
+    // Inizializziamo i composables
+    const { syncAll } = useMapSync(graphLayer, dssStore, uidIndex);
+    useMapMarkers(map, dssStore, findLayerById);
 
-  mounted() { 
-    this.initMap(); 
-    this.loadGraph(); 
-
-    this.resizeObserver = new ResizeObserver(() => {
-      if (this.map) {
-        this.map.invalidateSize();
-      }
-    });
-    this.resizeObserver.observe(this.$refs.mapContainer);
-  },
-
-  beforeUnmount() {
-    if (this.resizeObserver) {
-      this.resizeObserver.disconnect();
-    }
-  },
-
-  methods: {
-    initMap() {
-      this.map = markRaw(L.map(this.$refs.mapContainer, {
-        zoomControl: false, 
-        preferCanvas: true, // Cruciale per far sì che cerchi e linee si muovano insieme
-        maxBounds: TRENTO_BOUNDS, 
-        minZoom: 12
+    const initMap = () => {
+      map.value = markRaw(L.map(mapContainer.value, {
+        zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, minZoom: 12
       }).setView([46.0665, 11.1216], 15));
 
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(this.map);
-      L.control.zoom({ position: 'topleft' }).addTo(this.map);
-      
-      this.map.on('click', () => { this.$emit('clear-selection'); });
-    },
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png').addTo(map.value);
+      L.control.zoom({ position: 'topleft' }).addTo(map.value);
+      map.value.on('click', () => emit('clear-selection'));
+    };
 
-    async loadGraph() {
-      this.loading = true;
+    const loadGraph = async () => {
+      loading.value = true;
       try {
         const res = await fetch('/grafo_web.geojson');
         const data = await res.json();
-
-        const geojson = L.geoJSON(data, {
+        graphLayer.value = markRaw(L.geoJSON(data, {
           coordsToLatLng: (coords) => { 
             const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); 
             return [t[1], t[0]]; 
           },
           style: getFeatureStyle,
           onEachFeature: (feature, layer) => {
-            const uniqueId = String(feature.properties.id_arco || feature.properties.codice);
-            const uid = String(L.stamp(layer));
-            this.uidIndex[uid] = layer;
-            feature.properties.uniqueDbId = uniqueId;
-
+            const id = String(feature.properties.id_arco || feature.properties.codice);
+            uidIndex.value[L.stamp(layer)] = layer;
+            feature.properties.uniqueDbId = id;
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
-              this.$emit('select-edge', { 
-                id: uniqueId, 
+              emit('select-edge', { 
+                id, 
                 street: feature.properties.desvia, 
                 oneWay: feature.properties.sensouni, 
                 isClosed: !!feature.properties.isClosed,
-                isMulti: e.originalEvent.ctrlKey
+                isMulti: e.originalEvent.ctrlKey 
               });
             });
           }
-        });
-
-        this.graphLayer = markRaw(geojson);
-        this.graphLayer.addTo(this.map);
-        
-        this.dssStore.allEdges = data.features.map(f => ({
-          id: String(f.properties.id_arco || f.properties.codice),
-          street: f.properties.desvia || 'Senza Nome'
         }));
+        graphLayer.value.addTo(map.value);
+        dssStore.allEdges = data.features.map(f => ({ 
+          id: String(f.properties.id_arco || f.properties.codice), 
+          street: f.properties.desvia || 'Senza Nome' 
+        }));
+      } catch (e) {
+        console.error("Errore GeoJSON:", e);
+      } finally { loading.value = false; }
+    };
 
-      } catch (e) { 
-        console.error("Map Load Error:", e); 
-      } finally { 
-        this.loading = false; 
-      }
-    },
+    // Logica di Zoom e Focus (Recuperata!)
+    const zoomToEdgeGroup = (dbId) => {
+      if (!dbId || !map.value) return;
+      const targetId = String(dbId);
+      const matchingLayers = Object.values(uidIndex.value).filter(l => 
+        String(l.feature.properties.uniqueDbId).startsWith(targetId)
+      );
 
-    // --- NUOVA LOGICA VETTORIALE PER I PUNTI DIJKSTRA ---
-    updateRoutingMarkers() {
-      if (this.startPointLayer) { this.map.removeLayer(this.startPointLayer); this.startPointLayer = null; }
-      if (this.endPointLayer) { this.map.removeLayer(this.endPointLayer); this.endPointLayer = null; }
-
-      const createCircle = (pointData, color) => {
-        const layer = Object.values(this.uidIndex).find(l => String(l.feature.properties.uniqueDbId) === String(pointData.id));
-        if (layer) {
-          let coords = layer.getLatLngs();
-          if (Array.isArray(coords[0])) coords = coords[0];
-          const midPoint = coords[Math.floor(coords.length / 2)];
-
-          // CircleMarker è disegnato sullo stesso piano del grafo: non può "slittare"
-          return L.circleMarker(midPoint, {
-            radius: 6,
-            fillColor: color,
-            color: '#ffffff',
-            weight: 2,
-            opacity: 1,
-            fillOpacity: 1,
-            interactive: false
-          }).addTo(this.map);
-        }
-        return null;
-      };
-
-      if (this.dssStore.routingStartPoint) {
-        this.startPointLayer = createCircle(this.dssStore.routingStartPoint, '#3b82f6');
-      }
-      if (this.dssStore.routingEndPoint) {
-        this.endPointLayer = createCircle(this.dssStore.routingEndPoint, '#ef4444');
-      }
-    },
-
-    syncSelection(selectedEdges) {
-      if (!this.graphLayer) return;
-      const selectedIds = new Set(selectedEdges.map(e => String(e.id)));
-      
-      Object.values(this.uidIndex).forEach(layer => {
-        const id = String(layer.feature.properties.uniqueDbId);
-        if (selectedIds.has(id)) {
-           layer.setStyle(STYLES.selected); 
-           layer.bringToFront();
-        } else {
-           this.graphLayer.resetStyle(layer);
-        }
-      });
-    },
-
-    syncClosures(closedIds) {
-      if (!this.graphLayer) return;
-      const setIds = new Set(closedIds.map(String));
-      const selectedIds = new Set(this.dssStore.selectedEdges.map(e => String(e.id)));
-      
-      Object.values(this.uidIndex).forEach(layer => {
-        const id = String(layer.feature.properties.uniqueDbId);
-        layer.feature.properties.isClosed = setIds.has(id); 
-        
-        if (!selectedIds.has(id)) {
-           this.graphLayer.resetStyle(layer);
-        }
-      });
-    },
-
-    renderConnectedComponents(ccs) {
-      if (!this.graphLayer || !ccs || !ccs.length) return;
-      
-      const ccMap = new Map();
-      ccs.forEach((group, index) => {
-        const color = MAP_COLORS.ccPalette[index % MAP_COLORS.ccPalette.length]; 
-        group.forEach(edgeId => ccMap.set(String(edgeId), color));
-      });
-
-      Object.values(this.uidIndex).forEach(layer => {
-        const id = String(layer.feature.properties.uniqueDbId);
-        layer.feature.properties.ccColor = ccMap.get(id) || null;
-        
-        if (!this.dssStore.selectedEdges.some(e => String(e.id) === id)) {
-           this.graphLayer.resetStyle(layer);
-        }
-      });
-    },
-
-    syncRoutePath(pathIds) {
-      if (!this.graphLayer) return;
-      const setIds = new Set(pathIds.map(String));
-      const selectedIds = new Set(this.dssStore.selectedEdges.map(e => String(e.id)));
-
-      Object.values(this.uidIndex).forEach(layer => {
-        const id = String(layer.feature.properties.uniqueDbId);
-        layer.feature.properties.isRoute = setIds.has(id);
-        
-        if (!selectedIds.has(id)) {
-           this.graphLayer.resetStyle(layer); 
-        }
-        if (layer.feature.properties.isRoute) layer.bringToFront();
-      });
-    },
-
-    zoomToEdgeGroup(dbId) {
-      if (!dbId) return;
-      const targetId = String(dbId); 
-      
-      const matchingLayers = Object.values(this.uidIndex).filter(l => {
-         const id = String(l.feature.properties.uniqueDbId);
-         return id === targetId || id.startsWith(targetId + '_');
-      });
-      
       if (matchingLayers.length > 0) {
         const group = L.featureGroup(matchingLayers);
-        this.map.flyToBounds(group.getBounds(), { maxZoom: 17, duration: 1.2, padding: [40, 40] });
+        map.value.flyToBounds(group.getBounds(), { maxZoom: 17, duration: 1.2, padding: [40, 40] });
 
         const payloads = matchingLayers.map(layer => ({
           id: String(layer.feature.properties.uniqueDbId),
@@ -253,11 +108,23 @@ export default {
           isClosed: !!layer.feature.properties.isClosed,
           isMulti: true 
         }));
-
-        this.$emit('search-select', payloads);
-        this.dssStore.clearMapFocus(); 
+        emit('search-select', payloads);
+        dssStore.clearMapFocus(); 
       }
-    }
+    };
+
+    watch(() => props.focusEdgeId, (newId) => { if (newId) zoomToEdgeGroup(newId); });
+
+    onMounted(() => {
+      initMap();
+      loadGraph();
+      resizeObserver = new ResizeObserver(() => { if (map.value) map.value.invalidateSize(); });
+      resizeObserver.observe(mapContainer.value);
+    });
+
+    onBeforeUnmount(() => { if (resizeObserver) resizeObserver.disconnect(); });
+
+    return { mapContainer, loading, dssStore };
   }
 };
 </script>
