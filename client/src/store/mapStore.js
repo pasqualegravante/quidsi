@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
-import { ApiService } from '../services/api_server'; 
 import { useAuthStore } from './authStore';
 import { useUiStore } from './uiStore';
+import { EdgeService } from '../services/edgeService';      
+import { RoutingService } from '../services/routingService'; 
 import { useScenarioStore } from './scenarioStore';
 
 export const useMapStore = defineStore('map', {
@@ -56,7 +57,7 @@ export const useMapStore = defineStore('map', {
       
       ui.setCalculating(true);
       try {
-        const res = await ApiService.calculateConnectedComponents(auth.uid, scenario.activeScenario.id);
+        const res = await RoutingService.calculateConnectedComponents(auth.uid, scenario.activeScenario.id);
         this.connectedComponents = res.CCS || [];
       } finally { ui.setCalculating(false); }
     },
@@ -66,7 +67,7 @@ export const useMapStore = defineStore('map', {
       for (const edge of edgesToToggle) {
         const isClosed = this.activeClosureIds.includes(edge.id);
         if ((shouldClose && !isClosed) || (!shouldClose && isClosed)) {
-          const res = await ApiService.toggleEdge(uid, scenId, edge.id);
+          const res = await EdgeService.toggleEdge(uid, scenId, edge.id);
           if (res.toggled) {
             const idx = this.activeClosureIds.indexOf(edge.id);
             idx > -1 ? this.activeClosureIds.splice(idx, 1) : this.activeClosureIds.push(edge.id);
@@ -85,7 +86,7 @@ export const useMapStore = defineStore('map', {
       this.routingEndPoint = null;
     },
     async toggleEdgeStatus(uid, scenId, edgeId) {
-      const res = await ApiService.toggleEdge(uid, scenId, edgeId);
+      const res = await EdgeService.toggleEdge(uid, scenId, edgeId);
       if (res.toggled) {
         const idx = this.activeClosureIds.indexOf(edgeId);
         idx > -1 ? this.activeClosureIds.splice(idx, 1) : this.activeClosureIds.push(edgeId);
@@ -101,7 +102,7 @@ export const useMapStore = defineStore('map', {
 
       ui.setCalculating(true);
       try {
-        const res = await ApiService.calculateDijkstra(auth.uid, scenario.activeScenario.id, { 
+        const res = await RoutingService.calculateDijkstra(auth.uid, scenario.activeScenario.id, { 
           start: this.routingStartPoint.id, 
           end: this.routingEndPoint.id, 
           alfa: this.alfa 

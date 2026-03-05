@@ -22,8 +22,8 @@
           @duplicate="dssStore.duplicateScenario"
           @delete="openDeleteModal"
           @save-info="handleSaveInfo"
-        />
-      </ul>
+          @save-state="dssStore.saveCurrentScenario" 
+        /></ul>
     </div>
 
     <ConfirmDeleteModal 
@@ -37,7 +37,7 @@
 
 <script>
 import { useDssStore } from '../../store/dssStore';
-import ScenarioSearch from './scenario/ScenarioSearch.vue';
+import ScenarioSearch from './scenario/ScenarioSearch.vue'; // Assicurati che l'import rispetti il tuo nome cartella
 import ScenarioItem from './scenario/ScenarioItem.vue';
 import ConfirmDeleteModal from '../modals/ConfirmDeleteModal.vue';
 
