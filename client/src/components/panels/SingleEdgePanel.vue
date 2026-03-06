@@ -1,6 +1,5 @@
 <template>
   <div class="single-edge-panel">
-    
     <EdgeInfoList 
       :edge="singleEdge" 
       :count="dssStore.selectedEdges.length" 
@@ -12,13 +11,13 @@
       :isSingleEdgeClosed="isSingleEdgeClosed"
       :showSingleEdgeAction="dssStore.selectedEdges.length === 1"
       :allStreetSegmentsSelected="allStreetSegmentsSelected"
-      @toggle-street="handleStreet"
+      :isMultiSelection="dssStore.selectedEdges.length > 1"
+      @toggle-bulk="handleBulkAction"
       @toggle-edge="toggleArco(singleEdge.id)"
       @set-weight="impostaPeso"
       @select-entire-street="selectEntireStreet"
       @select-single-edge="selectSingleEdge"
     />
-    
   </div>
 </template>
 
@@ -36,9 +35,7 @@ export default {
     const uiStore = useUiStore();
     return { dssStore, uiStore };
   },
-  data() {
-    return { originalSingleEdgeId: null };
-  },
+  data() { return { originalSingleEdgeId: null }; },
   watch: {
     'dssStore.selectedEdges': {
       immediate: true,
@@ -68,30 +65,29 @@ export default {
     },
     isStreetPartiallyClosed() {
       if (!this.singleEdge.street) return false;
-      return this.dssStore.allEdges
-        .filter(e => e.street === this.singleEdge.street)
-        .some(e => this.dssStore.activeClosureIds.includes(e.id));
+      return this.dssStore.selectedEdges.some(e => this.dssStore.activeClosureIds.includes(e.id));
     }
   },
   methods: {
-    toggleArco(id) { 
-      this.dssStore.toggleEdgeStatus(id); 
-      // Nota: Non deselezioniamo sul singolo tratto, così l'utente può continuare a lavorarci su!
-    },
-    // 🔥 UX FIX: Azione massiva con Auto-Deselect e Spinner
-    async handleStreet(closeAll) {
-      this.uiStore.setCalculating(true, "Sincronizzazione topologica dell'intera via...");
+    toggleArco(id) { this.dssStore.toggleEdgeStatus(id); },
+    // 🔥 UX FIX: Azione massiva sui tratti selezionati (anche della stessa via)
+    async handleBulkAction(shouldClose) {
+      this.uiStore.setCalculating(true, "Aggiornamento dei tratti selezionati...");
       try {
-        await this.dssStore.toggleStreetStatus(this.singleEdge.street, closeAll);
-        // Svuota la selezione: fa sparire il giallo, mostra il rosso/verde e chiude la sidebar!
-        this.dssStore.clearMapSelection(); 
+        const promises = this.dssStore.selectedEdges.map(edge => {
+          const isClosed = this.dssStore.activeClosureIds.includes(edge.id);
+          if ((shouldClose && !isClosed) || (!shouldClose && isClosed)) {
+            return this.dssStore.toggleEdgeStatus(edge.id);
+          }
+          return Promise.resolve();
+        });
+        await Promise.all(promises);
+        this.dssStore.clearMapSelection(); // Chiude sidebar e toglie giallo
       } finally {
         this.uiStore.setCalculating(false);
       }
     },
-    impostaPeso() {
-      this.uiStore.showToast("🚧 Funzionalità 'Imposta Peso' in lavorazione (WIP)...", "info");
-    },
+    impostaPeso() { this.uiStore.showToast("🚧 Funzionalità 'Imposta Peso' in lavorazione...", "info"); },
     selectEntireStreet() {
       if (!this.singleEdge.street) return;
       const streetEdges = this.dssStore.allEdges.filter(e => e.street === this.singleEdge.street);
@@ -99,14 +95,8 @@ export default {
     },
     selectSingleEdge() {
       if (this.originalSingleEdgeId) {
-        const edgeToRestore = this.dssStore.allEdges.find(e => e.id === this.originalSingleEdgeId);
-        if (edgeToRestore) {
-          this.dssStore.processSearchSelect([edgeToRestore]);
-          return;
-        }
-      }
-      if (this.dssStore.selectedEdges.length > 0) {
-        this.dssStore.processSearchSelect([this.dssStore.selectedEdges[0]]);
+        const edge = this.dssStore.allEdges.find(e => e.id === this.originalSingleEdgeId);
+        if (edge) this.dssStore.processSearchSelect([edge]);
       }
     }
   }
