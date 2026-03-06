@@ -1,8 +1,9 @@
 <template>
   <div id="app-root">
+    
     <div class="dss-layout screen-only">
       <div v-if="uiStore && uiStore.isCalculating" class="global-overlay">
-        <div class="spinner">Calcolo in corso...</div>
+        <div class="spinner">Generazione Documento Ufficiale...</div>
       </div>
       
       <Login v-if="!dssStore.isAuthenticated" />
@@ -18,7 +19,10 @@
               ref="mapRef"
               :closedEdges="dssStore.activeClosureIds"
               :focusEdgeId="dssStore.mapFocusId"
+              :startPoint="dssStore.routingStartPoint"
+              :endPoint="dssStore.routingEndPoint"
               :cursor="dssStore.selectionMode ? 'crosshair' : 'grab'"
+              :routingPath="dssStore.calculatedPathLatLngs || []" 
               @select-edge="dssStore.processMapClick"
               @clear-selection="dssStore.clearMapSelection"
               @search-select="dssStore.processSearchSelect"
@@ -26,21 +30,11 @@
             <MapLegend />
           </div>
 
-          <SidebarRight 
-            :isOpen="uiStore.isRightSidebarOpen" 
-            @close="uiStore.setRightSidebar(false)"
-          />
+          <SidebarRight :isOpen="uiStore.isRightSidebarOpen" @close="uiStore.setRightSidebar(false)" />
         </main>
         
         <SavePromptModal v-if="uiStore.activeModal === 'savePrompt'" />
-        
-        <ConfirmDeleteModal 
-          v-if="uiStore.activeModal === 'deleteScenario'"
-          :show="true" 
-          :label="uiStore.modalData?.label"
-          @cancel="uiStore.closeModal"
-          @confirm="dssStore.executeGlobalDelete"
-        />
+        <ConfirmDeleteModal v-if="uiStore.activeModal === 'deleteScenario'" />
       </template>
     </div>
 
@@ -61,14 +55,11 @@ import ReportTemplate from './components/print/ReportTemplate.vue';
 import { useDssStore } from './store/dssStore';
 import { useUiStore } from './store/uiStore';
 import html2canvas from 'html2canvas';
-import { ref } from 'vue';
+import { ref, nextTick } from 'vue';
 
 export default {
   name: 'App',
-  components: { 
-    Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login, 
-    ConfirmDeleteModal, SavePromptModal, ReportTemplate 
-  },
+  components: { Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login, ConfirmDeleteModal, SavePromptModal, ReportTemplate },
   setup() {
     const dssStore = useDssStore();
     const uiStore = useUiStore();
@@ -79,19 +70,25 @@ export default {
       try {
         uiStore.setCalculating(true);
 
-        // 1. Zoom intelligente: Chiusure + Percorso
         if (mapRef.value) {
-          mapRef.value.fitToReportContent();
-          await new Promise(r => setTimeout(r, 1000));
+          // Attende dinamicamente finché Leaflet non ha finito di spostarsi
+          await mapRef.value.prepareForPrint();
         }
         
-        // 2. Snapshot
+        // Obbliga Vue e il browser a fare un Repaint grafico prima della foto
+        await nextTick();
+        
         if (mapElement) {
           const canvas = await html2canvas(mapElement, {
             useCORS: true, 
-            backgroundColor: null
+            scale: 2, 
+            backgroundColor: '#ffffff'
           });
           uiStore.setMapSnapshot(canvas.toDataURL('image/png'));
+        }
+
+        if (mapRef.value) {
+          mapRef.value.restoreMapState();
         }
 
         window.print();

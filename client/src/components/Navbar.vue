@@ -8,18 +8,21 @@
       <button class="action-btn" @click="dssStore.createScenario">
         <span class="icon">📄</span><span class="label">New</span>
       </button>
+      
       <button class="action-btn" @click="$emit('stampa-report')">
         <span class="icon">🖨️</span><span class="label">Report</span>
       </button>
+
       <button class="action-btn" @click="dssStore.saveCurrentScenario">
         <span class="icon">💾</span><span class="label">Salva</span>
       </button>
+
       <button class="action-btn" @click="exportScenario">
         <span class="icon">📤</span><span class="label">Export</span>
       </button>
+      
       <div class="user-profile">
-        <span class="avatar">👤</span>
-        <span class="username">Operatore</span>
+        <span class="avatar">👤</span><span class="username">Operatore</span>
       </div>
     </div>
   </header>
@@ -34,8 +37,7 @@ export default {
   components: { SearchBar },
   emits: ['stampa-report'],
   setup() {
-    const dssStore = useDssStore();
-    return { dssStore };
+    return { dssStore: useDssStore() };
   },
   methods: {
     goHome() { window.location.reload(); },

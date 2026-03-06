@@ -1,5 +1,5 @@
 <template>
-  <div class="map-wrapper">
+  <div class="map-wrapper" :style="{ cursor: cursor }">
     <div id="map" ref="mapContainer"></div>
     <div v-if="loading" class="map-loader">Sincronizzazione Grafo...</div>
   </div>
@@ -25,7 +25,11 @@ export default {
   name: 'MapGraph',
   props: { 
     focusEdgeId: String,
-    closedEdges: { type: Array, default: () => [] }
+    closedEdges: { type: Array, default: () => [] },
+    startPoint: Object, 
+    endPoint: Object,   
+    cursor: String,
+    routingPath: { type: Array, default: () => [] } 
   },
   emits: ['select-edge', 'clear-selection', 'search-select'],
 
@@ -33,8 +37,10 @@ export default {
     const dssStore = useDssStore();
     const mapContainer = ref(null);
     const loading = ref(false);
+    
     const map = shallowRef(null);
     const graphLayer = shallowRef(null);
+    const dijkstraLayer = shallowRef(null);
     const uidIndex = shallowRef({}); 
     let resizeObserver = null;
 
@@ -44,45 +50,101 @@ export default {
     useMapMarkers(map, dssStore, findLayerById);
     const { zoomToEdgeGroup } = useMapFocus(map, uidIndex, dssStore, emit);
 
-    // FUNZIONE CORRETTA: Zoom su Chiusure + Percorso
-    const fitToReportContent = () => {
-      if (!map.value || !graphLayer.value) return;
-      
-      const targetLayers = [];
-
-      // 1. Aggiungiamo le chiusure
-      if (props.closedEdges && props.closedEdges.length > 0) {
-        const closures = graphLayer.value.getLayers().filter(l => 
-          props.closedEdges.includes(String(l.feature.properties.id_arco || l.feature.properties.codice))
-        );
-        targetLayers.push(...closures);
-      }
-
-      // 2. Aggiungiamo il percorso (riconosciuto dallo stile blu)
-      const pathLayers = graphLayer.value.getLayers().filter(l => 
-        l.options.color === '#3b82f6' || l.options.weight === 6
-      );
-      targetLayers.push(...pathLayers);
-
-      // Eseguiamo fitBounds SOLO se abbiamo trovato elementi validi
-      if (targetLayers.length > 0) {
-        const group = L.featureGroup(targetLayers);
-        const bounds = group.getBounds();
-        
-        // Verifica di sicurezza sulle coordinate dei bounds
-        if (bounds.isValid()) {
-          map.value.fitBounds(bounds, { padding: [50, 50], animate: false });
+    // 🔥 FIX: prepareForPrint ora è Asincrona e sincronizzata con Leaflet
+    const prepareForPrint = () => {
+      return new Promise((resolve) => {
+        if (!map.value || !graphLayer.value) {
+          resolve();
+          return;
         }
-      }
+        
+        const bounds = L.latLngBounds();
+        let hasTargetElements = false;
+
+        const startId = props.startPoint ? (props.startPoint.id || props.startPoint) : null;
+        const endId = props.endPoint ? (props.endPoint.id || props.endPoint) : null;
+
+        graphLayer.value.getLayers().forEach(l => {
+          const id = String(l.feature.properties.id_arco || l.feature.properties.codice);
+          
+          const isClosed = props.closedEdges && props.closedEdges.includes(id);
+          const isStartOrEnd = (startId && id === startId) || (endId && id === endId);
+
+          if (isClosed) {
+            l.setStyle({ opacity: 1, color: '#ef4444', weight: 6 }); 
+            if (l.getBounds) bounds.extend(l.getBounds());
+            hasTargetElements = true;
+          } else if (isStartOrEnd) {
+            l.setStyle({ opacity: 1, color: '#22c55e', weight: 6 }); 
+            if (l.getBounds) bounds.extend(l.getBounds());
+            hasTargetElements = true;
+          } else {
+            l.setStyle({ opacity: 0, weight: 0 }); // INVISIBILE
+          }
+        });
+
+        if (dijkstraLayer.value && props.routingPath.length > 0) {
+          bounds.extend(dijkstraLayer.value.getBounds());
+          hasTargetElements = true;
+        }
+
+        if (hasTargetElements && bounds.isValid()) {
+          map.value.setMaxBounds(null); 
+          
+          let isResolved = false;
+          const finishPreparation = () => {
+            if (!isResolved) {
+              isResolved = true;
+              resolve();
+            }
+          };
+
+          // Ascoltiamo l'evento nativo di Leaflet: appena finisce di muoversi...
+          map.value.once('moveend', () => {
+            // ...diamo giusto 600ms ai tile (le immagini di sfondo) per caricarsi da internet
+            setTimeout(finishPreparation, 600); 
+          });
+
+          // Lanciamo lo zoom
+          map.value.fitBounds(bounds, { 
+            padding: [60, 60], 
+            maxZoom: 17, 
+            animate: false 
+          });
+
+          // Fallback di sicurezza: se la mappa era GIA' centrata, moveend non parte
+          setTimeout(finishPreparation, 800);
+        } else {
+          resolve();
+        }
+      });
     };
+
+    const restoreMapState = () => {
+      if (!map.value || !graphLayer.value) return;
+      graphLayer.value.getLayers().forEach(l => {
+        graphLayer.value.resetStyle(l); 
+      });
+      map.value.setMaxBounds(TRENTO_BOUNDS);
+    };
+
+    watch(() => props.routingPath, (newPath) => {
+      if (!map.value) return;
+      if (dijkstraLayer.value) map.value.removeLayer(dijkstraLayer.value);
+      
+      if (newPath && newPath.length > 0) {
+        dijkstraLayer.value = L.polyline(newPath, {
+          color: '#22c55e',
+          weight: 7,
+          opacity: 1
+        }).addTo(map.value);
+      }
+    }, { immediate: true, deep: true });
 
     const initMap = () => {
       if (!mapContainer.value) return;
       const leafletMap = L.map(mapContainer.value, {
-        zoomControl: false, 
-        preferCanvas: true, 
-        maxBounds: TRENTO_BOUNDS, 
-        minZoom: 12
+        zoomControl: false, preferCanvas: true, maxBounds: TRENTO_BOUNDS, minZoom: 12
       }).setView([46.0665, 11.1216], 15);
 
       map.value = leafletMap;
@@ -141,11 +203,12 @@ export default {
 
     onBeforeUnmount(() => { if (resizeObserver) resizeObserver.disconnect(); });
 
-    return { mapContainer, loading, dssStore, fitToReportContent };
+    return { mapContainer, loading, dssStore, prepareForPrint, restoreMapState };
   }
 };
 </script>
 
 <style scoped>
 .map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; position: relative; }
+.map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 2000; font-weight: 800; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
 </style>
