@@ -13,9 +13,12 @@ import { ref, shallowRef, onMounted, onBeforeUnmount, watch, nextTick } from 'vu
 import { useDssStore } from '../store/dssStore'; 
 import { getFeatureStyle } from '../utils/mapStyles';
 
+// Importiamo TUTTI i composables, inclusi i due nuovi appena creati
 import { useMapMarkers } from '../composables/useMapMarkers';
 import { useMapSync } from '../composables/useMapSync';
 import { useMapFocus } from '../composables/useMapFocus';
+import { useMapDijkstra } from '../composables/useMapDijkstra';
+import { useMapPrint } from '../composables/useMapPrint';
 
 const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
 const WGS84 = "EPSG:4326";
@@ -40,107 +43,21 @@ export default {
     
     const map = shallowRef(null);
     const graphLayer = shallowRef(null);
-    const dijkstraLayer = shallowRef(null);
     const uidIndex = shallowRef({}); 
     let resizeObserver = null;
 
+    // Inizializzazione dei moduli logici (Composables)
     const findLayerById = (id) => Object.values(uidIndex.value).find(l => String(l.feature.properties.uniqueDbId) === String(id));
 
     useMapSync(graphLayer, dssStore, uidIndex);
     useMapMarkers(map, dssStore, findLayerById);
     const { zoomToEdgeGroup } = useMapFocus(map, uidIndex, dssStore, emit);
+    
+    // NUOVI COMPOSABLES
+    const { dijkstraLayer } = useMapDijkstra(map, props);
+    const { prepareForPrint, restoreMapState } = useMapPrint(map, graphLayer, dijkstraLayer, props);
 
-    // 🔥 FIX: prepareForPrint ora è Asincrona e sincronizzata con Leaflet
-    const prepareForPrint = () => {
-      return new Promise((resolve) => {
-        if (!map.value || !graphLayer.value) {
-          resolve();
-          return;
-        }
-        
-        const bounds = L.latLngBounds();
-        let hasTargetElements = false;
-
-        const startId = props.startPoint ? (props.startPoint.id || props.startPoint) : null;
-        const endId = props.endPoint ? (props.endPoint.id || props.endPoint) : null;
-
-        graphLayer.value.getLayers().forEach(l => {
-          const id = String(l.feature.properties.id_arco || l.feature.properties.codice);
-          
-          const isClosed = props.closedEdges && props.closedEdges.includes(id);
-          const isStartOrEnd = (startId && id === startId) || (endId && id === endId);
-
-          if (isClosed) {
-            l.setStyle({ opacity: 1, color: '#ef4444', weight: 6 }); 
-            if (l.getBounds) bounds.extend(l.getBounds());
-            hasTargetElements = true;
-          } else if (isStartOrEnd) {
-            l.setStyle({ opacity: 1, color: '#22c55e', weight: 6 }); 
-            if (l.getBounds) bounds.extend(l.getBounds());
-            hasTargetElements = true;
-          } else {
-            l.setStyle({ opacity: 0, weight: 0 }); // INVISIBILE
-          }
-        });
-
-        if (dijkstraLayer.value && props.routingPath.length > 0) {
-          bounds.extend(dijkstraLayer.value.getBounds());
-          hasTargetElements = true;
-        }
-
-        if (hasTargetElements && bounds.isValid()) {
-          map.value.setMaxBounds(null); 
-          
-          let isResolved = false;
-          const finishPreparation = () => {
-            if (!isResolved) {
-              isResolved = true;
-              resolve();
-            }
-          };
-
-          // Ascoltiamo l'evento nativo di Leaflet: appena finisce di muoversi...
-          map.value.once('moveend', () => {
-            // ...diamo giusto 600ms ai tile (le immagini di sfondo) per caricarsi da internet
-            setTimeout(finishPreparation, 600); 
-          });
-
-          // Lanciamo lo zoom
-          map.value.fitBounds(bounds, { 
-            padding: [60, 60], 
-            maxZoom: 17, 
-            animate: false 
-          });
-
-          // Fallback di sicurezza: se la mappa era GIA' centrata, moveend non parte
-          setTimeout(finishPreparation, 800);
-        } else {
-          resolve();
-        }
-      });
-    };
-
-    const restoreMapState = () => {
-      if (!map.value || !graphLayer.value) return;
-      graphLayer.value.getLayers().forEach(l => {
-        graphLayer.value.resetStyle(l); 
-      });
-      map.value.setMaxBounds(TRENTO_BOUNDS);
-    };
-
-    watch(() => props.routingPath, (newPath) => {
-      if (!map.value) return;
-      if (dijkstraLayer.value) map.value.removeLayer(dijkstraLayer.value);
-      
-      if (newPath && newPath.length > 0) {
-        dijkstraLayer.value = L.polyline(newPath, {
-          color: '#22c55e',
-          weight: 7,
-          opacity: 1
-        }).addTo(map.value);
-      }
-    }, { immediate: true, deep: true });
-
+    // Funzioni Core della Mappa
     const initMap = () => {
       if (!mapContainer.value) return;
       const leafletMap = L.map(mapContainer.value, {
@@ -203,6 +120,7 @@ export default {
 
     onBeforeUnmount(() => { if (resizeObserver) resizeObserver.disconnect(); });
 
+    // Esponiamo le funzioni di stampa ad App.vue e ai servizi esterni
     return { mapContainer, loading, dssStore, prepareForPrint, restoreMapState };
   }
 };

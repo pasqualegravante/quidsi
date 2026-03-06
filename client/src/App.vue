@@ -22,7 +22,7 @@
               :startPoint="dssStore.routingStartPoint"
               :endPoint="dssStore.routingEndPoint"
               :cursor="dssStore.selectionMode ? 'crosshair' : 'grab'"
-              :routingPath="dssStore.calculatedPathLatLngs || []" 
+              :routingPath="mockDijkstraPath" 
               @select-edge="dssStore.processMapClick"
               @clear-selection="dssStore.clearMapSelection"
               @search-select="dssStore.processSearchSelect"
@@ -30,11 +30,21 @@
             <MapLegend />
           </div>
 
-          <SidebarRight :isOpen="uiStore.isRightSidebarOpen" @close="uiStore.setRightSidebar(false)" />
+          <SidebarRight 
+            :isOpen="uiStore.isRightSidebarOpen" 
+            @close="uiStore.setRightSidebar(false)"
+          />
         </main>
         
         <SavePromptModal v-if="uiStore.activeModal === 'savePrompt'" />
-        <ConfirmDeleteModal v-if="uiStore.activeModal === 'deleteScenario'" />
+        
+        <ConfirmDeleteModal 
+          v-if="uiStore.activeModal === 'deleteScenario'"
+          :show="true" 
+          :label="uiStore.modalData?.label"
+          @cancel="uiStore.closeModal"
+          @confirm="dssStore.executeGlobalDelete"
+        />
       </template>
     </div>
 
@@ -52,59 +62,66 @@ import Login from './components/Login.vue';
 import ConfirmDeleteModal from './components/modals/ConfirmDeleteModal.vue';
 import SavePromptModal from './components/modals/SavePromptModal.vue';
 import ReportTemplate from './components/print/ReportTemplate.vue'; 
+
 import { useDssStore } from './store/dssStore';
 import { useUiStore } from './store/uiStore';
-import html2canvas from 'html2canvas';
-import { ref, nextTick } from 'vue';
+import { ref, computed, watch } from 'vue';
+
+// Importiamo il nuovo servizio modulare
+import { PrintService } from './services/printService';
 
 export default {
   name: 'App',
-  components: { Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, Login, ConfirmDeleteModal, SavePromptModal, ReportTemplate },
+  components: { 
+    Navbar, SidebarLeft, SidebarRight, MapGraph, MapLegend, 
+    Login, ConfirmDeleteModal, SavePromptModal, ReportTemplate 
+  },
   setup() {
     const dssStore = useDssStore();
     const uiStore = useUiStore();
     const mapRef = ref(null);
 
-    const handlePrintReport = async () => {
-      const mapElement = document.querySelector('.map-container');
-      try {
-        uiStore.setCalculating(true);
+    // MOCK DATA: Percorso finto per testare la stampa del verde (in attesa del backend)
+    const mockDijkstraPath = computed(() => {
+      // In futuro sostituirai questo con: return dssStore.calculatedPathLatLngs || [];
+      return [
+        [46.0665, 11.1216],
+        [46.0672, 11.1228],
+        [46.0680, 11.1210]
+      ];
+    });
 
-        if (mapRef.value) {
-          // Attende dinamicamente finché Leaflet non ha finito di spostarsi
-          await mapRef.value.prepareForPrint();
+    // AUTO-SCENARIO: Non appena l'utente entra, carichiamo un ambiente di lavoro
+    watch(() => dssStore.isAuthenticated, async (isAuth) => {
+      if (isAuth && !dssStore.activeScenario) {
+        // Se ci sono scenari salvati (es. i mock in scenarioService.js), prendiamo il primo
+        if (dssStore.scenarios && dssStore.scenarios.length > 0) {
+          await dssStore.selectScenario(dssStore.scenarios[0].id);
+        } else {
+          // Altrimenti ne creiamo uno nuovo per farlo iniziare subito a lavorare
+          await dssStore.createScenario();
         }
-        
-        // Obbliga Vue e il browser a fare un Repaint grafico prima della foto
-        await nextTick();
-        
-        if (mapElement) {
-          const canvas = await html2canvas(mapElement, {
-            useCORS: true, 
-            scale: 2, 
-            backgroundColor: '#ffffff'
-          });
-          uiStore.setMapSnapshot(canvas.toDataURL('image/png'));
-        }
-
-        if (mapRef.value) {
-          mapRef.value.restoreMapState();
-        }
-
-        window.print();
-      } catch (e) {
-        console.error("Errore report:", e);
-      } finally {
-        uiStore.setCalculating(false);
       }
+    }, { immediate: true });
+
+    // FUNZIONE SNELLITA: L'orchestrazione è delegata al servizio
+    const handlePrintReport = async () => {
+      await PrintService.executePrint(mapRef.value, '.map-container');
     };
 
-    return { dssStore, uiStore, mapRef, handlePrintReport };
+    return { 
+      dssStore, 
+      uiStore, 
+      mapRef, 
+      handlePrintReport, 
+      mockDijkstraPath 
+    };
   }
 };
 </script>
 
 <style>
+/* CSS BASE E LAYOUT GLOBALE */
 html, body { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; overflow: hidden; }
 .dss-layout { display: flex; flex-direction: column; height: 100vh; }
 .dss-main-area { display: flex; flex: 1; overflow: hidden; position: relative; }
@@ -116,11 +133,29 @@ html, body { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-ser
   align-items: center; z-index: 9999; color: white; font-weight: bold;
 }
 
-@media screen { .print-only-layout { display: none !important; } }
+/* ------------------------------------------- */
+/* MAGIA DELLA STAMPA (CSS PRINT SWAP)         */
+/* ------------------------------------------- */
+
+/* SU SCHERMO: Nascondi il report cartaceo */
+@media screen {
+  .print-only-layout {
+    display: none !important;
+  }
+}
+
+/* SU CARTA: Nascondi l'interfaccia e mostra il report */
 @media print {
-  body { background: white; overflow: visible !important; }
-  .screen-only { display: none !important; }
-  .print-only-layout { display: block !important; }
+  body { 
+    background: white; 
+    overflow: visible !important; 
+  }
+  .screen-only { 
+    display: none !important; 
+  }
+  .print-only-layout { 
+    display: block !important; 
+  }
   @page { margin: 1cm; }
 }
 </style>
