@@ -16,6 +16,7 @@
       @toggle-edge="toggleArco(singleEdge.id)"
       @set-weight="impostaPeso"
       @select-entire-street="selectEntireStreet"
+      @select-single-edge="selectSingleEdge"
     />
     
   </div>
@@ -35,15 +36,28 @@ export default {
     const uiStore = useUiStore();
     return { dssStore, uiStore };
   },
+  data() {
+    return { originalSingleEdgeId: null };
+  },
+  watch: {
+    'dssStore.selectedEdges': {
+      immediate: true,
+      handler(newVal) {
+        if (newVal && newVal.length === 1) this.originalSingleEdgeId = newVal[0].id;
+      }
+    }
+  },
   computed: {
     singleEdge() {
+      if (this.dssStore.selectedEdges.length > 1 && this.originalSingleEdgeId) {
+        const orig = this.dssStore.selectedEdges.find(e => e.id === this.originalSingleEdgeId);
+        if (orig) return orig;
+      }
       return this.dssStore.selectedEdges[0] || {};
     },
-    // 🔥 SOMMA DELLE LUNGHEZZE
     totalLength() {
       return this.dssStore.selectedEdges.reduce((sum, edge) => sum + (Number(edge.length) || 0), 0);
     },
-    // Controllo per nascondere il bottone se ho già selezionato tutto
     allStreetSegmentsSelected() {
       if (!this.singleEdge.street) return false;
       const totalSegmentsInStreet = this.dssStore.allEdges.filter(e => e.street === this.singleEdge.street).length;
@@ -61,21 +75,39 @@ export default {
   },
   methods: {
     toggleArco(id) { 
-      this.dssStore.toggleEdgeStatus(this.dssStore.uid, this.dssStore.activeScenario.id, id); 
+      this.dssStore.toggleEdgeStatus(id); 
+      // Nota: Non deselezioniamo sul singolo tratto, così l'utente può continuare a lavorarci su!
     },
-    handleStreet(closeAll) {
-      this.dssStore.toggleStreetStatus(this.dssStore.uid, this.dssStore.activeScenario.id, this.singleEdge.street, closeAll);
+    // 🔥 UX FIX: Azione massiva con Auto-Deselect e Spinner
+    async handleStreet(closeAll) {
+      this.uiStore.setCalculating(true, "Sincronizzazione topologica dell'intera via...");
+      try {
+        await this.dssStore.toggleStreetStatus(this.singleEdge.street, closeAll);
+        // Svuota la selezione: fa sparire il giallo, mostra il rosso/verde e chiude la sidebar!
+        this.dssStore.clearMapSelection(); 
+      } finally {
+        this.uiStore.setCalculating(false);
+      }
     },
     impostaPeso() {
-      this.uiStore.showToast("Funzionalità Imposta Peso in arrivo nella Next Version!", "info");
+      this.uiStore.showToast("🚧 Funzionalità 'Imposta Peso' in lavorazione (WIP)...", "info");
     },
-    // 🔥 SELEZIONA INTERA VIA
     selectEntireStreet() {
       if (!this.singleEdge.street) return;
-      // Peschiamo tutti gli archi di questa via dallo store globale
       const streetEdges = this.dssStore.allEdges.filter(e => e.street === this.singleEdge.street);
-      // Usiamo il metodo esistente per sostituire la selezione
       this.dssStore.processSearchSelect(streetEdges);
+    },
+    selectSingleEdge() {
+      if (this.originalSingleEdgeId) {
+        const edgeToRestore = this.dssStore.allEdges.find(e => e.id === this.originalSingleEdgeId);
+        if (edgeToRestore) {
+          this.dssStore.processSearchSelect([edgeToRestore]);
+          return;
+        }
+      }
+      if (this.dssStore.selectedEdges.length > 0) {
+        this.dssStore.processSearchSelect([this.dssStore.selectedEdges[0]]);
+      }
     }
   }
 }

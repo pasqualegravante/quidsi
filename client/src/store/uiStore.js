@@ -2,37 +2,33 @@ import { defineStore } from 'pinia';
 
 export const useUiStore = defineStore('ui', {
   state: () => ({
-    toasts: [],
     isCalculating: false,
+    loadingMessage: 'Elaborazione in corso...', // NUOVO STATO
     isRightSidebarOpen: false,
-    activeModal: null, 
-    modalData: null,
-    mapSnapshot: null // Memorizza lo screenshot della mappa per il report
+    mapSnapshot: null,
+    activeModal: null,
+    modalData: null
   }),
   actions: {
-    showToast(message, type = 'info') {
-      const id = Date.now() + Math.random();
-      this.toasts.push({ id, message, type });
-      setTimeout(() => {
-        this.toasts = this.toasts.filter(t => t.id !== id);
-      }, 3500);
-    },
-    setCalculating(status) {
+    // Ora accetta il messaggio come secondo parametro opzionale!
+    setCalculating(status, message = 'Elaborazione in corso...') {
       this.isCalculating = status;
+      if (status) {
+        this.loadingMessage = message;
+      }
     },
-    setRightSidebar(isOpen) {
-      this.isRightSidebarOpen = isOpen;
-    },
-    openModal(name, data = null) {
-      this.activeModal = name;
+    setRightSidebar(status) { this.isRightSidebarOpen = status; },
+    setMapSnapshot(data) { this.mapSnapshot = data; },
+    openModal(modalName, data = null) {
+      this.activeModal = modalName;
       this.modalData = data;
     },
     closeModal() {
       this.activeModal = null;
       this.modalData = null;
     },
-    setMapSnapshot(dataUrl) {
-      this.mapSnapshot = dataUrl;
+    showToast(message, type = 'info') {
+      alert(`[${type.toUpperCase()}] ${message}`); 
     }
   }
 });

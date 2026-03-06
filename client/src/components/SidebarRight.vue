@@ -42,11 +42,32 @@ export default {
 </script>
 
 <style scoped>
-.sidebar-right { position: absolute; top: 80px; right: 20px; width: 280px; background: white; border-radius: 16px; padding: 20px; box-shadow: -5px 0 20px rgba(0,0,0,0.1); z-index: 1100; }
-.panel-header { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-.collapse-btn { background: none; border: none; font-size: 20px; cursor: pointer; }
+/* 🔥 UX FIX: Centratura Verticale Perfetta e Scroll */
+.sidebar-right { 
+  position: absolute; 
+  top: 50%; /* Centra verticalmente... */
+  transform: translateY(-50%); /* ...compensando l'altezza reale del pannello */
+  right: 20px; 
+  width: 280px; 
+  max-height: 85vh; /* Evita che esca dallo schermo su monitor piccoli */
+  overflow-y: auto; /* Aggiunge lo scroll se i bottoni sono troppi */
+  background: white; 
+  border-radius: 16px; 
+  padding: 20px; 
+  box-shadow: -5px 0 20px rgba(0, 0, 0, 0.15); /* Ombra leggermente più marcata per staccarlo dallo sfondo */
+  z-index: 1000; 
+}
 
-/* Animazioni della barra */
-.slide-right-enter-active, .slide-right-leave-active { transition: transform 0.3s ease; }
-.slide-right-enter-from, .slide-right-leave-to { transform: translateX(120%); }
+/* Stile per nascondere la scrollbar nativa bruttina (opzionale ma elegante) */
+.sidebar-right::-webkit-scrollbar { width: 6px; }
+.sidebar-right::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+.sidebar-right::-webkit-scrollbar-track { background: transparent; }
+
+.panel-header { display: flex; justify-content: flex-start; margin-bottom: 15px; }
+.collapse-btn { background: #f1f5f9; border: none; font-size: 14px; cursor: pointer; padding: 5px 10px; border-radius: 6px; color: #475569; transition: 0.2s; }
+.collapse-btn:hover { background: #e2e8f0; color: #0f172a; }
+
+/* Animazioni */
+.slide-right-enter-active, .slide-right-leave-active { transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); }
+.slide-right-enter-from, .slide-right-leave-to { transform: translate(100%, -50%); opacity: 0; }
 </style>

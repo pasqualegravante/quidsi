@@ -4,7 +4,13 @@
     <p v-else><strong>ID:</strong> <span class="badge-multi">Multipli ({{ count }} tratti)</span></p>
     
     <p><strong>Via:</strong> <span>{{ edge.street }}</span></p>
-    <p><strong>Dir:</strong> <span>{{ edge.oneWay === 1 ? 'Senso Unico' : 'Doppio Senso' }}</span></p>
+    
+    <p><strong>Dir:</strong> 
+      <span>
+        {{ edge.oneWay === 1 ? '⬆️ Senso Unico' : '↕️ Doppio Senso' }}
+      </span>
+    </p>
+    
     <p><strong>Limite velocità:</strong> <span>{{ edge.speedLimit || '50 km/h' }}</span></p>
     
     <p>
@@ -20,7 +26,7 @@ export default {
   props: {
     edge: { type: Object, required: true },
     count: { type: Number, default: 1 },
-    totalLength: { type: Number, default: 0 } // Nuova prop ricevuta dal padre
+    totalLength: { type: Number, default: 0 }
   }
 }
 </script>

@@ -54,7 +54,7 @@ export const useMapStore = defineStore('map', {
       const auth = useAuthStore();
       const scenario = useScenarioStore();
       
-      ui.setCalculating(true);
+      ui.setCalculating(true, "Analisi topologica di connettività...");
       try {
         const res = await RoutingService.calculateConnectedComponents(auth.uid, scenario.activeScenario.id);
         this.connectedComponents = res.CCS || [];
@@ -98,10 +98,8 @@ export const useMapStore = defineStore('map', {
       const auth = useAuthStore();
       const scenario = useScenarioStore();
       if (!this.routingStartPoint || !this.routingEndPoint) return;
-
-      ui.setCalculating(true);
+      ui.setCalculating(true, "Calcolo del percorso ottimale (Dijkstra)...");
       try {
-        // 🔥 INVIAMO L'INTERO PAYLOAD (che ora conterrà anche le latlng)
         const payload = { 
           startPoint: this.routingStartPoint, 
           endPoint: this.routingEndPoint, 

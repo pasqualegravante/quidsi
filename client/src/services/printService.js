@@ -12,7 +12,7 @@ export const PrintService = {
     }
 
     try {
-      uiStore.setCalculating(true);
+      uiStore.setCalculating(true, "Generazione Documento Ufficiale in corso...");
 
       // 1. Prepara la mappa (ora è molto più veloce)
       if (mapComponent && typeof mapComponent.prepareForPrint === 'function') {

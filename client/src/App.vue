@@ -3,7 +3,7 @@
     
     <div class="dss-layout screen-only">
       <div v-if="uiStore && uiStore.isCalculating" class="global-overlay">
-        <div class="spinner">Generazione Documento Ufficiale...</div>
+        <div class="spinner">{{ uiStore.loadingMessage }}</div>
       </div>
       
       <Login v-if="!dssStore.isAuthenticated" />
