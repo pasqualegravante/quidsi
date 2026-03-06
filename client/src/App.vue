@@ -17,10 +17,11 @@
 <script>
 import Login from './components/Login.vue';
 import DashboardLayout from './layouts/DashboardLayout.vue';
-import ReportTemplate from './components/print/ReportTemplate.vue'; // 🔥 Path aggiornato
+import ReportTemplate from './components/print/ReportTemplate.vue';
 import GlobalModals from './components/modals/GlobalModals.vue'; 
 
 import { useDssStore } from './store/dssStore';
+import { onMounted, onBeforeUnmount } from 'vue';
 
 export default {
   name: 'App',
@@ -29,6 +30,30 @@ export default {
   },
   setup() {
     const dssStore = useDssStore();
+
+    // 🔥 UX STRATAGEMMA 3: Scorciatoie globali da tastiera
+    const handleGlobalShortcuts = (e) => {
+      // Intercetta CTRL+S (Windows) o CMD+S (Mac)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault(); // Blocca la finestra nativa di salvataggio pagina del browser
+        
+        // Se ci sono modifiche, salva lo scenario
+        if (dssStore.isModified) {
+          dssStore.saveCurrentScenario();
+        }
+      }
+    };
+
+    onMounted(() => {
+      // Registra l'ascoltatore quando l'app viene montata
+      window.addEventListener('keydown', handleGlobalShortcuts);
+    });
+
+    onBeforeUnmount(() => {
+      // Pulisce l'ascoltatore per evitare memory leaks
+      window.removeEventListener('keydown', handleGlobalShortcuts);
+    });
+
     return { dssStore };
   }
 };

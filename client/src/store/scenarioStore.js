@@ -78,10 +78,9 @@ export const useScenarioStore = defineStore('scenario', {
 
       if (action && action.type === 'select') await this._executeSelectScenario(action.targetId);
       if (action && action.type === 'duplicate') await this._executeDuplicateScenario(action.targetId);
-      if (action && action.type === 'create') await this._executeCreateScenario(); // 🔥 Fix Nuova Pratica
+      if (action && action.type === 'create') await this._executeCreateScenario(); 
     },
 
-    // 🔥 FIX: Protezione su "Nuova Pratica"
     async createScenario() {
       if (this.isModified) {
         this.pendingAction = { type: 'create' };
@@ -99,7 +98,13 @@ export const useScenarioStore = defineStore('scenario', {
       if (res && res.scen) {
         await this.fetchAllScenarios(auth.uid);
         await this._executeSelectScenario(res.scen.id);
-        ui.showToast("Nuova pratica creata.");
+        
+        // 🔥 UX STRATAGEMMA 1: Reindirizzamento visivo
+        // Apriamo la sidebar sinistra sul tab Archivio per mostrare dove è stata creata la pratica
+        if (typeof ui.setActiveTab === 'function') ui.setActiveTab('archivio');
+        if (typeof ui.setLeftSidebar === 'function') ui.setLeftSidebar(true);
+        
+        ui.showToast("Nuova pratica creata. Rinominala in alto a sinistra.");
       }
     },
 

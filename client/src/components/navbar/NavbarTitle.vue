@@ -4,6 +4,7 @@
       <span class="brand-icon" @click="goHome" title="Torna alla Home">🏙️</span>
       <div class="scenario-edit-box">
         <input 
+          ref="scenarioInput"
           type="text" 
           v-model="editableLabel" 
           @blur="updateScenarioName" 
@@ -39,6 +40,19 @@ export default {
         this.editableLabel = newVal || '';
         this.$nextTick(() => { this.isInitializing = false; });
       }
+    },
+    // 🔥 UX STRATAGEMMA 2: Auto-focus e selezione rapida
+    'dssStore.activeScenario.id': {
+      async handler(newId, oldId) {
+        // Se c'è un cambio di scenario e il nome contiene "Nuovo Scenario"
+        if (newId && oldId !== newId && this.dssStore.activeScenario?.label.toLowerCase().includes('nuovo scenario')) {
+          await this.$nextTick(); // Aspettiamo che Vue renderizzi l'input
+          if (this.$refs.scenarioInput) {
+            this.$refs.scenarioInput.focus();
+            this.$refs.scenarioInput.select(); // Seleziona tutto il testo "Nuovo Scenario" pronto per essere sovrascritto
+          }
+        }
+      }
     }
   },
   methods: {
@@ -63,7 +77,8 @@ export default {
 <style scoped>
 .navbar-left-area { min-width: 320px; display: flex; align-items: center; }
 .scenario-brand-wrapper { display: flex; align-items: center; gap: 12px; }
-.brand-icon { font-size: 22px; cursor: pointer; filter: grayscale(1) brightness(2); }
+.brand-icon { font-size: 22px; cursor: pointer; filter: grayscale(1) brightness(2); transition: 0.2s; }
+.brand-icon:hover { filter: none; transform: scale(1.1); }
 .scenario-edit-box { display: flex; flex-direction: column; justify-content: center; }
 .navbar-scenario-input { background: transparent; border: 1px solid transparent; color: #facc15; font-size: 16px; font-weight: 900; padding: 2px 4px; border-radius: 4px; width: 260px; outline: none; transition: 0.2s; cursor: text; }
 .navbar-scenario-input:hover { background: #1e293b; }

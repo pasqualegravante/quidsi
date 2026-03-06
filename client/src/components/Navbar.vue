@@ -1,14 +1,12 @@
 <template>
   <header class="dss-navbar">
-    
     <NavbarTitle />
-
+    
     <div class="navbar-search-area">
       <SearchBar />
     </div>
 
     <NavbarActions @stampa-report="$emit('stampa-report')" />
-
   </header>
 </template>
 
@@ -16,30 +14,16 @@
 import NavbarTitle from './navbar/NavbarTitle.vue';
 import NavbarActions from './navbar/NavbarActions.vue';
 import SearchBar from './SearchBar.vue';
-import { useDssStore } from '../store/dssStore';
+import { usePreventUnload } from '../composables/usePreventUnload'; // 🔥 Composable
 
 export default {
   name: 'Navbar',
   components: { NavbarTitle, SearchBar, NavbarActions },
   emits: ['stampa-report'],
   setup() {
-    const dssStore = useDssStore();
-    return { dssStore };
-  },
-  mounted() {
-    // La protezione anti-chiusura accidentale della scheda del browser rimane qui
-    window.addEventListener('beforeunload', this.preventAccidentalClose);
-  },
-  beforeUnmount() {
-    window.removeEventListener('beforeunload', this.preventAccidentalClose);
-  },
-  methods: {
-    preventAccidentalClose(e) {
-      if (this.dssStore.isModified) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    }
+    // 🔥 Deleghiamo il blocco tab browser al composable. Componente pulitissimo!
+    usePreventUnload(); 
+    return {};
   }
 }
 </script>
@@ -57,7 +41,6 @@ export default {
   z-index: 1000; 
   position: relative; 
 }
-
 .navbar-search-area { 
   flex: 1; 
   display: flex; 

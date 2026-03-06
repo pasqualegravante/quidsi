@@ -31,34 +31,30 @@
 <script>
 import { useDssStore } from '../store/dssStore';
 import { SearchService } from '../services/searchService'; 
+import { useClickOutside } from '../composables/useClickOutside'; // 🔥 Composable
+import { ref } from 'vue';
 
 export default {
   name: 'SearchBar',
   setup() {
     const dssStore = useDssStore();
-    return { dssStore };
+    const searchContainer = ref(null);
+    return { dssStore, searchContainer };
   },
   data() {
-    return {
-      searchQuery: '',
-      results: [],
-      showDropdown: false,
-      selectedIndex: -1
-    }
+    return { searchQuery: '', results: [], showDropdown: false, selectedIndex: -1 }
   },
   watch: {
     'dssStore.allEdges': {
-      handler(newEdges) {
-        if (newEdges && newEdges.length > 0) SearchService.buildIndex(newEdges);
-      },
+      handler(newEdges) { if (newEdges && newEdges.length > 0) SearchService.buildIndex(newEdges); },
       immediate: true
     }
   },
   mounted() {
-    document.addEventListener('click', this.handleClickOutside);
-  },
-  beforeUnmount() {
-    document.removeEventListener('click', this.handleClickOutside);
+    // 🔥 Deleghiamo tutta la logica di click fuori componente al composable
+    useClickOutside(this.$refs.searchContainer, () => {
+      this.showDropdown = false;
+    });
   },
   methods: {
     async onSearch() {
@@ -71,20 +67,11 @@ export default {
         this.showDropdown = false;
       }
     },
-    navigateDown() {
-      if (this.showDropdown && this.selectedIndex < this.results.length - 1) this.selectedIndex++;
-    },
-    navigateUp() {
-      if (this.showDropdown && this.selectedIndex > 0) this.selectedIndex--;
-    },
+    navigateDown() { if (this.showDropdown && this.selectedIndex < this.results.length - 1) this.selectedIndex++; },
+    navigateUp() { if (this.showDropdown && this.selectedIndex > 0) this.selectedIndex--; },
     selectHighlighted() {
       if (this.showDropdown && this.selectedIndex >= 0 && this.results[this.selectedIndex]) {
         this.selectRoad(this.results[this.selectedIndex]);
-      }
-    },
-    handleClickOutside(event) {
-      if (this.$refs.searchContainer && !this.$refs.searchContainer.contains(event.target)) {
-        this.showDropdown = false;
       }
     },
     selectRoad(res) {
@@ -98,24 +85,17 @@ export default {
 </script>
 
 <style scoped>
-.search-container { 
-  position: relative; 
-  width: 380px; /* Leggermente più larga per leggibilità */
-  max-width: 90vw; /* Sicurezza per schermi molto piccoli */
-}
+/* Lascia il CSS invariato */
+.search-container { position: relative; width: 380px; max-width: 90vw; }
 .input-wrapper { display: flex; align-items: center; background: white; border-radius: 8px; padding: 0 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); border: 1px solid #e2e8f0; }
 .search-icon { font-size: 16px; margin-right: 10px; opacity: 0.6; }
 .search-input { width: 100%; padding: 14px 0; border: none; background: transparent; color: #0f172a; outline: none; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: bold;}
 .search-input::placeholder { color: #94a3b8; font-weight: normal; }
-
 .search-results { position: absolute; top: 100%; left: 0; right: 0; background: white; border-radius: 8px; margin-top: 8px; padding: 0; list-style: none; box-shadow: 0 10px 25px rgba(0,0,0,0.15); border: 1px solid #e2e8f0; max-height: 300px; overflow-y: auto; z-index: 3000; }
 .search-results li { padding: 12px 15px; cursor: pointer; border-bottom: 1px solid #f1f5f9; font-size: 13px; transition: background 0.1s; display: flex; justify-content: space-between; align-items: center; }
 .search-results li:last-child { border-bottom: none; }
 .street-name { font-weight: bold; color: #1e293b; }
 .street-id { font-size: 11px; color: #94a3b8; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
-
-.search-results li.highlighted, 
-.search-results li:hover { background: #f8fafc; }
-.search-results li.highlighted .street-name, 
-.search-results li:hover .street-name { color: #3b82f6; }
+.search-results li.highlighted, .search-results li:hover { background: #f8fafc; }
+.search-results li.highlighted .street-name, .search-results li:hover .street-name { color: #3b82f6; }
 </style>
