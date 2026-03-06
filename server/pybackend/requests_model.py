@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Tuple
 class scenario_req(BaseModel):
     id: str
     uid: str
-    closed_segments: List[str]
+    closed_segments: Optional[List[str]] = []
     alfa: Optional[float] = 0.5
     manual_weights: Optional[Dict[str, float]] = None
 

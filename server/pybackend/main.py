@@ -2,6 +2,7 @@ from fastapi import FastAPI
 import uvicorn
 from router.router_compute import router_compute
 from router.router_edge import router_edge
+from router.router_scenario import router_scenario
 
 app = FastAPI()
 
@@ -11,6 +12,7 @@ async def root():
 
 app.include_router(router_compute)
 app.include_router(router_edge)
+app.include_router(router_scenario)
 
 # Avvio del server condizionato alla connessione con il DB
 if __name__ == "__main__":
