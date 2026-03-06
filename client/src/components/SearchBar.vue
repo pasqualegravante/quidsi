@@ -31,7 +31,7 @@
 <script>
 import { useDssStore } from '../store/dssStore';
 import { SearchService } from '../services/searchService'; 
-import { useClickOutside } from '../composables/useClickOutside'; // 🔥 Composable
+import { useClickOutside } from '../composables/useClickOutside'; 
 import { ref } from 'vue';
 
 export default {
@@ -42,7 +42,13 @@ export default {
     return { dssStore, searchContainer };
   },
   data() {
-    return { searchQuery: '', results: [], showDropdown: false, selectedIndex: -1 }
+    return { 
+      searchQuery: '', 
+      results: [], 
+      showDropdown: false, 
+      selectedIndex: -1,
+      debounceTimeout: null // 🔥 Variabile per gestire il timer di debounce
+    }
   },
   watch: {
     'dssStore.allEdges': {
@@ -51,21 +57,32 @@ export default {
     }
   },
   mounted() {
-    // 🔥 Deleghiamo tutta la logica di click fuori componente al composable
     useClickOutside(this.$refs.searchContainer, () => {
       this.showDropdown = false;
     });
   },
   methods: {
-    async onSearch() {
-      if (this.searchQuery.length > 1) {
-        this.results = await SearchService.search(this.searchQuery);
-        this.showDropdown = true;
-        this.selectedIndex = -1; 
-      } else {
-        this.results = [];
-        this.showDropdown = false;
+    onSearch() {
+      // 🔥 DEBOUNCE LOGIC: Se l'utente digita di nuovo prima di 300ms, annulla la chiamata precedente
+      if (this.debounceTimeout) {
+        clearTimeout(this.debounceTimeout);
       }
+
+      // Imposta un nuovo timer di 300ms
+      this.debounceTimeout = setTimeout(async () => {
+        if (this.searchQuery.length > 1) {
+          try {
+            this.results = await SearchService.search(this.searchQuery);
+            this.showDropdown = true;
+            this.selectedIndex = -1; 
+          } catch (error) {
+            console.error("Errore durante la ricerca:", error);
+          }
+        } else {
+          this.results = [];
+          this.showDropdown = false;
+        }
+      }, 300);
     },
     navigateDown() { if (this.showDropdown && this.selectedIndex < this.results.length - 1) this.selectedIndex++; },
     navigateUp() { if (this.showDropdown && this.selectedIndex > 0) this.selectedIndex--; },
@@ -85,7 +102,6 @@ export default {
 </script>
 
 <style scoped>
-/* Lascia il CSS invariato */
 .search-container { position: relative; width: 380px; max-width: 90vw; }
 .input-wrapper { display: flex; align-items: center; background: white; border-radius: 8px; padding: 0 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); border: 1px solid #e2e8f0; }
 .search-icon { font-size: 16px; margin-right: 10px; opacity: 0.6; }
