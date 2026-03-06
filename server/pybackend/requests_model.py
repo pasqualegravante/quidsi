@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 
 class scenario_req(BaseModel):
     id: str
@@ -11,3 +11,6 @@ class scenario_req(BaseModel):
 class dijkstra_req(scenario_req):
     source: str
     target: str
+
+class edge_req(scenario_req):
+    edges: List[Tuple[str, str]]

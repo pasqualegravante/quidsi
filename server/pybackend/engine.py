@@ -1,5 +1,5 @@
 import networkx as nx
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from pathlib import Path
 from translator import csv_to_nx
 from scenario_cache import ScenarioCache
@@ -100,11 +100,44 @@ class GraphEngine:
 
         return {"code":200, "res":nx.number_strongly_connected_components(G)}
     
+    def remove_edges(self, G: nx.DiGraph, edges: List[Tuple[str, str]]):
+        try:
+            for e in edges:
+                G.remove_edge(e[0], e[1])
+            return {"code":200, "res":"true"}
+        
+        except nx.NetworkXError as nxe:
+            return {"code": 400, "res":f"Error: invalid edges: {nxe}"}
+        except Exception as e:
+            return {"code": 500, "res":f"Error: generic exception: {e}"}
 
+    def add_edges(self, G: nx.DiGraph, edges: List[Tuple[str, str]]):
+        try:
+            G.add_edges_from(edges)
+            return {"code":200, "res":"true"}
+        
+        except Exception as e:
+            return {"code": 500, "res":f"Error: generic exception: {e}"}
+
+    def get_edge_data(self, G: nx.DiGraph, edge: Tuple[str, str]):
+        try:
+            res = G.get_edge_data(edge[0], edge[1])
+            if not res:
+                res = "None"
+
+            return {"code":200, "res":res}
+        
+        except Exception as e:
+            return {"code": 500, "res":f"Error: generic exception: {e}"}
+    
+    def get_cache(self) -> ScenarioCache:
+        return self.sc_cache
+        
 """ge = GraphEngine()
 print(ge.base_graph)
 
 res = ge.compute_dijkstra(ge.base_graph, "664581.81 5101530.0", "664578.66 5101506.33")
 nccs = ge.compute_scc(ge.base_graph)
 
-print(res, nccs)"""
+print(ge.get_edge_data(ge.base_graph, ("664552.81 5104142.0", "664561.56 5104103.5")))
+# print(res, nccs)"""
