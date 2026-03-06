@@ -12,6 +12,7 @@
       :showSingleEdgeAction="dssStore.selectedEdges.length === 1"
       :allStreetSegmentsSelected="allStreetSegmentsSelected"
       :isMultiSelection="dssStore.selectedEdges.length > 1"
+      :canRestoreSingle="!!originalSingleEdgeId"
       @toggle-bulk="handleBulkAction"
       @toggle-edge="toggleArco(singleEdge.id)"
       @set-weight="impostaPeso"
@@ -35,12 +36,25 @@ export default {
     const uiStore = useUiStore();
     return { dssStore, uiStore };
   },
-  data() { return { originalSingleEdgeId: null }; },
+  data() {
+    return {
+      originalSingleEdgeId: null
+    };
+  },
   watch: {
     'dssStore.selectedEdges': {
       immediate: true,
       handler(newVal) {
-        if (newVal && newVal.length === 1) this.originalSingleEdgeId = newVal[0].id;
+        // Se seleziono un singolo tratto (click sulla mappa), me lo ricordo
+        if (newVal && newVal.length === 1) {
+          this.originalSingleEdgeId = newVal[0].id;
+        } 
+        // Se la selezione è vuota, resetto la memoria
+        else if (!newVal || newVal.length === 0) {
+          this.originalSingleEdgeId = null;
+        }
+        // Se la selezione è multipla fin dall'inizio (es. ricerca), 
+        // originalSingleEdgeId rimane null e il tasto non apparirà.
       }
     }
   },
@@ -70,9 +84,8 @@ export default {
   },
   methods: {
     toggleArco(id) { this.dssStore.toggleEdgeStatus(id); },
-    // 🔥 UX FIX: Azione massiva sui tratti selezionati (anche della stessa via)
     async handleBulkAction(shouldClose) {
-      this.uiStore.setCalculating(true, "Aggiornamento dei tratti selezionati...");
+      this.uiStore.setCalculating(true, "Aggiornamento tratti selezionati...");
       try {
         const promises = this.dssStore.selectedEdges.map(edge => {
           const isClosed = this.dssStore.activeClosureIds.includes(edge.id);
@@ -82,12 +95,12 @@ export default {
           return Promise.resolve();
         });
         await Promise.all(promises);
-        this.dssStore.clearMapSelection(); // Chiude sidebar e toglie giallo
+        this.dssStore.clearMapSelection();
       } finally {
         this.uiStore.setCalculating(false);
       }
     },
-    impostaPeso() { this.uiStore.showToast("🚧 Funzionalità 'Imposta Peso' in lavorazione...", "info"); },
+    impostaPeso() { this.uiStore.showToast("🚧 Funzionalità in lavorazione...", "info"); },
     selectEntireStreet() {
       if (!this.singleEdge.street) return;
       const streetEdges = this.dssStore.allEdges.filter(e => e.street === this.singleEdge.street);

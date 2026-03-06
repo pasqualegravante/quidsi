@@ -4,7 +4,7 @@
       ⤡ Espandi all'intera VIA
     </button>
 
-    <button v-if="!showSingleEdgeAction" class="btn-outline-blue" @click="$emit('select-single-edge')">
+    <button v-if="!showSingleEdgeAction && canRestoreSingle" class="btn-outline-blue" @click="$emit('select-single-edge')">
       ⤢ Riduci al tratto iniziale
     </button>
 
@@ -33,7 +33,8 @@ export default {
     isSingleEdgeClosed: Boolean,
     showSingleEdgeAction: Boolean,
     allStreetSegmentsSelected: Boolean,
-    isMultiSelection: Boolean
+    isMultiSelection: Boolean,
+    canRestoreSingle: Boolean // Nuova prop di controllo
   },
   emits: ['toggle-bulk', 'toggle-edge', 'set-weight', 'select-entire-street', 'select-single-edge']
 }

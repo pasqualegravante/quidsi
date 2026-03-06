@@ -1,15 +1,12 @@
 <template>
   <div class="tab-pane">
     <div class="pane-header">
-      <h3>Archivio Scenari</h3>
+      <h3>Archivio Pratiche</h3>
       <button class="collapse-btn" @click="$emit('collapse')" title="Chiudi pannello">⮜</button>
     </div>
     
     <div class="pane-body">
-      <ScenarioSearch 
-        v-model="filterScenario" 
-        @create="dssStore.createScenario" 
-      />
+      <ScenarioSearch v-model="filterScenario" @create="dssStore.createScenario" />
 
       <ul class="scenario-list">
         <ScenarioItem 
@@ -44,17 +41,11 @@ export default {
     const uiStore = useUiStore();
     return { dssStore, uiStore };
   },
-  data() {
-    return {
-      filterScenario: ''
-    };
-  },
+  data() { return { filterScenario: '' }; },
   computed: {
     filteredScenarios() {
       if (!this.filterScenario) return this.dssStore.scenarios;
-      return this.dssStore.scenarios.filter(s => 
-        s.label.toLowerCase().includes(this.filterScenario.toLowerCase())
-      );
+      return this.dssStore.scenarios.filter(s => s.label.toLowerCase().includes(this.filterScenario.toLowerCase()));
     }
   },
   methods: {
@@ -62,7 +53,7 @@ export default {
       await this.dssStore.updateScenarioInfo(id, label, desc);
     },
     openDeleteModal(scen) {
-      this.uiStore.openModal('deleteScenario', scen); // Delega l'apertura all'orchestratore globale
+      this.uiStore.openModal('deleteScenario', scen);
     }
   }
 }
@@ -71,8 +62,8 @@ export default {
 <style scoped>
 .tab-pane { display: flex; flex-direction: column; height: 100%; }
 .pane-header { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #f1f5f9; border-bottom: 1px solid #cbd5e1; }
-.pane-header h3 { margin: 0; font-size: 14px; color: #0f172a; }
-.collapse-btn { background: #e2e8f0; border: none; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-weight: bold; }
-.pane-body { padding: 20px; flex: 1; overflow-y: auto; }
-.scenario-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 12px;}
+.pane-header h3 { margin: 0; font-size: 16px; color: #0f172a; }
+.pane-body { flex: 1; padding: 15px; overflow-y: auto; background: white; }
+.scenario-list { list-style: none; padding: 0; margin: 0; }
+.collapse-btn { background: #e2e8f0; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
 </style>

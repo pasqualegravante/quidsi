@@ -2,11 +2,18 @@
   <div class="dss-modal-overlay">
     <div class="dss-modal">
       <h3>
-        {{ dssStore.pendingAction?.type === 'select' ? 'SALVARE PRIMA DI CAMBIARE SCENARIO' : 'SALVARE PRIMA DI DUPLICARE SCENARIO' }}
+        {{ 
+          dssStore.pendingAction?.type === 'select' ? 'SALVARE PRIMA DI CAMBIARE SCENARIO' : 
+          dssStore.pendingAction?.type === 'create' ? 'SALVARE PRIMA DI CREARE' : 
+          'SALVARE PRIMA DI DUPLICARE SCENARIO' 
+        }}
       </h3>
       
       <p v-if="dssStore.pendingAction?.type === 'select'">
         Salva eventuali modifiche di "{{ dssStore.activeScenario?.label || 'questo scenario' }}" prima di lavorare su un altro scenario, oppure scarta le modifiche.
+      </p>
+      <p v-else-if="dssStore.pendingAction?.type === 'create'">
+        Salva eventuali modifiche di "{{ dssStore.activeScenario?.label || 'questo scenario' }}" prima di creare una nuova pratica, oppure andranno perse.
       </p>
       <p v-else>
         Salva eventuali modifiche di "{{ dssStore.activeScenario?.label || 'questo scenario' }}" prima di duplicare, oppure una vecchia versione verrà duplicata.
@@ -14,7 +21,7 @@
 
       <div class="modal-footer">
         <button class="btn-annulla" @click="dssStore.resolvePendingAction(false)">
-          {{ dssStore.pendingAction?.type === 'select' ? 'SCARTA' : 'IGNORA' }}
+          {{ dssStore.pendingAction?.type === 'duplicate' ? 'IGNORA' : 'SCARTA' }}
         </button>
         <button class="btn-salva" @click="dssStore.resolvePendingAction(true)">
           SALVA

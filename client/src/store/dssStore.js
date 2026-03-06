@@ -50,6 +50,8 @@ export const useDssStore = defineStore('dss', () => {
   async function updateScenarioInfo(id, l, d) { return scenario.updateScenarioInfo(id, l, d); }
   async function duplicateScenario(id) { return scenario.duplicateScenario(id); }
   async function deleteScenario(id) { return scenario.deleteScenario(id); }
+  async function updateScenarioLabel(labeltext) {return scenario.updateScenarioLabel(labeltext);}
+  
 
   async function calculateDijkstra() { return map.calculateDijkstra(); }
   async function calculateConnessione() { return map.calculateConnectedComponents(); }
@@ -103,6 +105,6 @@ export const useDssStore = defineStore('dss', () => {
     performLogin, handleEdgeSelection, clearMapFocus, resetSelection, setSelectionMode, setRoutingPoint,
     fetchAllScenarios, selectScenario, saveCurrentScenario, resolvePendingAction, createScenario, updateScenarioInfo, duplicateScenario, deleteScenario,
     calculateDijkstra, calculateConnessione, toggleStreetStatus, toggleEdgeStatus,
-    processMapClick, clearMapSelection, processSearchSelect, executeGlobalDelete
+    processMapClick, clearMapSelection, processSearchSelect, executeGlobalDelete, updateScenarioLabel
   };
 });
