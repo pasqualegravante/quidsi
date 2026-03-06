@@ -9,7 +9,7 @@ export const useMapStore = defineStore('map', {
   state: () => ({
     activeClosureIds: [],
     connectedComponents: [], 
-    dijkstraPath: [],
+    dijkstraPath: [], // ORA CONTERRA' LE COORDINATE [lat, lng]
     selectedEdges: [], 
     allEdges: [],
     alfa: 0.5, 
@@ -20,7 +20,6 @@ export const useMapStore = defineStore('map', {
     mapFocusId: null
   }),
   
-  // CORREZIONE BUG #2: I getters ora sono al livello corretto!
   getters: {
     activeClosuresObjects: (state) => {
       return state.activeClosureIds.map(id => {
@@ -80,7 +79,7 @@ export const useMapStore = defineStore('map', {
     clearMapFocus() { this.mapFocusId = null; },
     resetSelection() {
       this.selectedEdges = [];
-      this.dijkstraPath = [];
+      this.dijkstraPath = []; // Si resetterà correttamente cancellando la linea verde
       this.connectedComponents = [];
       this.routingStartPoint = null;
       this.routingEndPoint = null;
@@ -102,13 +101,23 @@ export const useMapStore = defineStore('map', {
 
       ui.setCalculating(true);
       try {
-        const res = await RoutingService.calculateDijkstra(auth.uid, scenario.activeScenario.id, { 
-          start: this.routingStartPoint.id, 
-          end: this.routingEndPoint.id, 
+        // 🔥 INVIAMO L'INTERO PAYLOAD (che ora conterrà anche le latlng)
+        const payload = { 
+          startPoint: this.routingStartPoint, 
+          endPoint: this.routingEndPoint, 
           alfa: this.alfa 
-        });
-        this.dijkstraPath = res.edges;
-      } finally { ui.setCalculating(false); }
+        };
+        
+        const res = await RoutingService.calculateDijkstra(auth.uid, scenario.activeScenario.id, payload);
+        
+        // Salviamo la lista di array [lat, lng] restituita dal "traduttore"
+        this.dijkstraPath = res.path || [];
+        
+      } catch (e) {
+        console.error("Errore calcolo Dijkstra:", e);
+      } finally { 
+        ui.setCalculating(false); 
+      }
     }
   }
 });

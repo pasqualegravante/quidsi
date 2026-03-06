@@ -27,7 +27,8 @@
               @clear-selection="dssStore.clearMapSelection"
               @search-select="dssStore.processSearchSelect"
             />
-            <MapLegend />
+            
+            <MapLegend v-show="!uiStore.isCalculating" />
           </div>
 
           <SidebarRight 
@@ -104,7 +105,7 @@ export default {
       }
     }, { immediate: true });
 
-    // FUNZIONE SNELLITA: L'orchestrazione è delegata al servizio
+    // FUNZIONE SNELLITA: L'orchestrazione è delegata al servizio PrintService
     const handlePrintReport = async () => {
       await PrintService.executePrint(mapRef.value, '.map-container');
     };

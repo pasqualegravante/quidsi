@@ -10,7 +10,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import proj4 from 'proj4';
 import { ref, shallowRef, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
-import { useDssStore } from '../store/dssStore'; 
+import { useDssStore } from '../store/dssStore';
 import { getFeatureStyle } from '../utils/mapStyles';
 
 // Importiamo TUTTI i composables, inclusi i due nuovi appena creati
@@ -26,13 +26,13 @@ const TRENTO_BOUNDS = [[45.9500, 11.0000], [46.1500, 11.2500]];
 
 export default {
   name: 'MapGraph',
-  props: { 
+  props: {
     focusEdgeId: String,
     closedEdges: { type: Array, default: () => [] },
-    startPoint: Object, 
-    endPoint: Object,   
+    startPoint: Object,
+    endPoint: Object,
     cursor: String,
-    routingPath: { type: Array, default: () => [] } 
+    routingPath: { type: Array, default: () => [] }
   },
   emits: ['select-edge', 'clear-selection', 'search-select'],
 
@@ -40,10 +40,10 @@ export default {
     const dssStore = useDssStore();
     const mapContainer = ref(null);
     const loading = ref(false);
-    
+
     const map = shallowRef(null);
     const graphLayer = shallowRef(null);
-    const uidIndex = shallowRef({}); 
+    const uidIndex = shallowRef({});
     let resizeObserver = null;
 
     // Inizializzazione dei moduli logici (Composables)
@@ -52,7 +52,7 @@ export default {
     useMapSync(graphLayer, dssStore, uidIndex);
     useMapMarkers(map, dssStore, findLayerById);
     const { zoomToEdgeGroup } = useMapFocus(map, uidIndex, dssStore, emit);
-    
+
     // NUOVI COMPOSABLES
     const { dijkstraLayer } = useMapDijkstra(map, props);
     const { prepareForPrint, restoreMapState } = useMapPrint(map, graphLayer, dijkstraLayer, props);
@@ -77,9 +77,9 @@ export default {
         const res = await fetch('/grafo_web.geojson');
         const data = await res.json();
         const geojson = L.geoJSON(data, {
-          coordsToLatLng: (coords) => { 
-            const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); 
-            return [t[1], t[0]]; 
+          coordsToLatLng: (coords) => {
+            const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]);
+            return [t[1], t[0]];
           },
           style: getFeatureStyle,
           onEachFeature: (feature, layer) => {
@@ -88,18 +88,23 @@ export default {
             feature.properties.uniqueDbId = id;
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
-              emit('select-edge', { 
-                id, street: feature.properties.desvia, oneWay: feature.properties.sensouni, 
-                isClosed: !!feature.properties.isClosed, isMulti: e.originalEvent.ctrlKey 
+              emit('select-edge', {
+                id: String(feature.properties.id_arco || feature.properties.codice),
+                street: feature.properties.desvia || 'Senza Nome',
+                // AGGIUNTA FONDAMENTALE: inviamo le coordinate esatte del click
+                latlng: e.latlng,
+                oneWay: feature.properties.sensouni,
+                isClosed: !!feature.properties.isClosed,
+                isMulti: e.originalEvent.ctrlKey
               });
             });
           }
         });
         graphLayer.value = geojson;
         graphLayer.value.addTo(map.value);
-        dssStore.allEdges = data.features.map(f => ({ 
-          id: String(f.properties.id_arco || f.properties.codice), 
-          street: f.properties.desvia || 'Senza Nome' 
+        dssStore.allEdges = data.features.map(f => ({
+          id: String(f.properties.id_arco || f.properties.codice),
+          street: f.properties.desvia || 'Senza Nome'
         }));
       } catch (err) {
         console.error("Errore caricamento Grafo:", err);
@@ -127,6 +132,24 @@ export default {
 </script>
 
 <style scoped>
-.map-wrapper, #map { width: 100%; height: 100%; background: #e2e8f0; position: relative; }
-.map-loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 15px 25px; border-radius: 8px; z-index: 2000; font-weight: 800; box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); }
+.map-wrapper,
+#map {
+  width: 100%;
+  height: 100%;
+  background: #e2e8f0;
+  position: relative;
+}
+
+.map-loader {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: white;
+  padding: 15px 25px;
+  border-radius: 8px;
+  z-index: 2000;
+  font-weight: 800;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
 </style>
