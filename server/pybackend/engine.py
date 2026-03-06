@@ -2,43 +2,29 @@ import networkx as nx
 from typing import List, Dict, Tuple
 from pathlib import Path
 from translator import csv_to_nx
-from scenario_cache import ScenarioCache
 
 class GraphEngine:
     def __init__(self):
         #self.base_graph_path = Path(base_graph_path)
         self.base_graph: nx.Graph = self._load_base_graph()
-        self.sc_cache: ScenarioCache = ScenarioCache()
 
     def _load_base_graph(self) -> nx.Graph:
         return csv_to_nx()
 
     def build_scenario_graph(self,
-                            user_id:str,
-                            scen_id:str,
                             closed_segments: List[str], 
                             alfa: float, 
                             manual_weights: Dict[str, float]) -> nx.Graph:
         
         g: nx.Graph = None
-        scen = self.sc_cache.get(user_id, scen_id)
     
-        if(scen):
-            g = scen["graph"]
-        
-        else:
-            g = self.base_graph.copy()
-
-            # 1. Rimuovi archi chiusi
-            for eid in closed_segments:
-                for u, v, k, data in list(g.edges(keys=True, data=True)):
-                    if data.get("edge_id") == eid:
-                        g.remove_edge(u, v, k)
-                        break
-            
-            res = self.sc_cache.put(user_id, scen_id, g, closed_segments, alfa, manual_weights)
-            if not res:
-                g = None
+        g = self.base_graph.copy()
+        # 1. Rimuovi archi chiusi
+        for eid in closed_segments:
+            for u, v, k, data in list(g.edges(keys=True, data=True)):
+                if data.get("edge_id") == eid:
+                    g.remove_edge(u, v, k)
+                    break
         """
         # 2. Applica formula pesi
         for u, v, k, data in G.edges(keys=True, data=True):
@@ -129,9 +115,6 @@ class GraphEngine:
         
         except Exception as e:
             return {"code": 500, "res":f"Error: generic exception: {e}"}
-    
-    def get_cache(self) -> ScenarioCache:
-        return self.sc_cache
         
 """ge = GraphEngine()
 print(ge.base_graph)

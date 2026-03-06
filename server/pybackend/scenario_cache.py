@@ -71,9 +71,9 @@ class ScenarioCache:
         key = self._key(uid, scen_id)
         state = {
                 "graph": graph,
-                "closed_segments": list(closed_segments),
-                "alfa": alfa,
-                "manual_weights": dict(manual_weights),
+                "closed_segments": list(closed_segments) if closed_segments else [],
+                "alfa": alfa or 0.5,
+                "manual_weights": dict(manual_weights) if manual_weights else [],
                 "last_access": time.time(),
                 "uid": uid,
                 "scen_id": scen_id
@@ -114,6 +114,13 @@ class ScenarioCache:
             return True
         return False
 
+    def update(self, uid: str, scen_id: str, stateUpdate: Dict[str, any]) -> bool:
+        state = self.get(uid, scen_id)
+        if state:
+            state.update(stateUpdate)
+            return True
+        return False
+    
     def stats(self) -> dict:
         return {
             "total_cached": len(self.cache),
