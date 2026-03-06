@@ -77,9 +77,9 @@ export default {
         const res = await fetch('/grafo_web.geojson');
         const data = await res.json();
         const geojson = L.geoJSON(data, {
-          coordsToLatLng: (coords) => {
-            const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]);
-            return [t[1], t[0]];
+          coordsToLatLng: (coords) => { 
+            const t = proj4(UTM_32N, WGS84, [coords[0], coords[1]]); 
+            return [t[1], t[0]]; 
           },
           style: getFeatureStyle,
           onEachFeature: (feature, layer) => {
@@ -88,24 +88,39 @@ export default {
             feature.properties.uniqueDbId = id;
             layer.on('click', (e) => {
               L.DomEvent.stopPropagation(e);
-              emit('select-edge', {
-                id: String(feature.properties.id_arco || feature.properties.codice),
-                street: feature.properties.desvia || 'Senza Nome',
-                // AGGIUNTA FONDAMENTALE: inviamo le coordinate esatte del click
-                latlng: e.latlng,
-                oneWay: feature.properties.sensouni,
-                isClosed: !!feature.properties.isClosed,
-                isMulti: e.originalEvent.ctrlKey
+              // Quando clicchiamo, prendiamo le info da allEdges che abbiamo pre-calcolato sotto
+              const edgeData = dssStore.allEdges.find(edg => edg.id === id);
+              emit('select-edge', { 
+                ...edgeData,
+                latlng: e.latlng, 
+                isClosed: !!feature.properties.isClosed, 
+                isMulti: e.originalEvent.ctrlKey 
               });
             });
           }
         });
         graphLayer.value = geojson;
         graphLayer.value.addTo(map.value);
-        dssStore.allEdges = data.features.map(f => ({
-          id: String(f.properties.id_arco || f.properties.codice),
-          street: f.properties.desvia || 'Senza Nome'
-        }));
+
+        // 🔥 PRE-CALCOLO LUNGHEZZA PER TUTTO IL GRAFO
+        dssStore.allEdges = data.features.map(f => {
+          let calcLen = 0;
+          if (f.geometry && f.geometry.coordinates) {
+            const coords = f.geometry.coordinates;
+            for (let i = 0; i < coords.length - 1; i++) {
+              const dx = coords[i+1][0] - coords[i][0];
+              const dy = coords[i+1][1] - coords[i][1];
+              calcLen += Math.sqrt(dx * dx + dy * dy);
+            }
+          }
+          return { 
+            id: String(f.properties.id_arco || f.properties.codice), 
+            street: f.properties.desvia || 'Senza Nome',
+            oneWay: f.properties.sensouni,
+            length: calcLen // Salviamo la lunghezza in metri per ogni frammento!
+          };
+        });
+
       } catch (err) {
         console.error("Errore caricamento Grafo:", err);
       } finally { loading.value = false; }

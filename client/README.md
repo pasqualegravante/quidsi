@@ -1,84 +1,52 @@
 # DSS - Decision Support System (Traffic Management)
 
-Questo repository contiene il frontend dell'applicazione DSS (Decision Support System), sviluppato per la gestione, simulazione e analisi di scenari di traffico urbano. L'applicazione è basata su **Vue 3** e utilizza **Pinia** per lo state management e **Leaflet** per il rendering cartografico.
+Questo repository contiene il frontend dell'applicazione DSS (Decision Support System), sviluppato per la gestione, simulazione e analisi di scenari di traffico urbano. L'applicazione è basata su **Vue 3**, **Pinia** per lo state management e **Leaflet** per il rendering cartografico.
 
-L'architettura del progetto è stata strutturata seguendo i principi dell'**Atomic Design** per l'interfaccia utente e garantendo una netta separazione delle responsabilità (Separation of Concerns) tra il livello di presentazione, la logica di stato e il livello di comunicazione di rete.
+L'architettura segue i principi dell'**Atomic Design** e garantisce una netta separazione delle responsabilità (*Separation of Concerns*) tra presentazione, logica di stato e comunicazione di rete. L'approccio è quello del **Digital Twin**: il client mima esattamente lo stato del grafo sul server (MongoDB/NetworkX), mantenendo sincronizzati scenari, chiusure (archi rossi) e percorsi calcolati (archi verdi).
 
 ---
 
 ## Struttura del Progetto
 
-Il codice sorgente è organizzato all'interno della directory `src/`, suddivisa in moduli logici.
+Il codice sorgente è organizzato nella directory `src/` in moduli logici disaccoppiati.
 
-### 1. Livello di Rete (Services)
-La directory `src/services/` isola la logica di comunicazione con le API di backend. Il sistema integra un meccanismo di mock per consentire lo sviluppo e i test in assenza del server.
+### 1. Livello di Rete e Servizi (Services)
+Logica di comunicazione API e astrazione delle operazioni complesse:
 
-* **`apiConfig.js`**: File di configurazione contenente gli endpoint. La variabile `USE_MOCKS` permette di deviare le chiamate di rete verso risposte simulate locali.
-* **`scenarioService.js`**: Espone i metodi CRUD per la gestione degli scenari. In modalità mock, gestisce un in-memory database per garantire la persistenza locale della sessione.
-* **`routingService.js`**: Gestisce le chiamate computazionali sul grafo, includendo l'algoritmo di Dijkstra per il calcolo dei percorsi ottimali e l'algoritmo per l'individuazione delle componenti connesse (aree isolate).
-* **`edgeService.js`**: Gestisce le mutazioni di stato dei singoli segmenti stradali (apertura/chiusura).
-* **`searchService.js`**: Implementa un motore di indicizzazione locale per raggruppare i frammenti del file GeoJSON, fornendo una funzionalità di ricerca univoca e ottimizzata.
-* **`storage.js`**: Fornisce un'astrazione per le interazioni con il `localStorage` del browser, utilizzato per parametri di configurazione persistenti.
+* **`apiConfig.js`**: Configurazione endpoint e flag `USE_MOCKS` per test senza backend.
+* **`scenarioService.js`**: Gestione CRUD degli scenari con persistenza in-memory per i mock.
+* **`routingService.js`**: Funge da **Adapter Universale**. Converte le coordinate geografiche (WGS84) del frontend in coordinate piane (UTM 32N) per NetworkX e viceversa. Questo permette il calcolo dei percorsi basato su punti esatti anziché su ID archi, risolvendo le discrepanze tra `grafo_web.geojson` e `grafo_pulito.graphml`.
+* **`edgeService.js`**: Gestione dello stato di apertura/chiusura dei segmenti stradali.
+* **`printService.js`**: Regista asincrono della stampa. Orchestra la preparazione della mappa, attende il rendering dei tile, esegue lo snapshot con `html2canvas` a scala 1.5x e ripristina lo stato della UI.
+* **`searchService.js`**: Indicizzazione locale che raggruppa frammenti stradali in toponimi univoci per l'utente.
 
-### 2. Gestione dello Stato (Stores)
-La directory `src/store/` contiene i moduli Pinia che detengono la logica di business e lo stato dell'applicazione. Nessun componente UI effettua chiamate di rete dirette.
+### 2. Gestione dello Stato (Store)
+* **`mapStore.js`**: Core geospaziale. Gestisce `activeClosureIds`, `dijkstraPath` (come array di coordinate `[lat, lng]`), parametri di simulazione (`alfa`) e punti di routing.
+* **`scenarioStore.js`**: Metadati dello scenario attivo (ID, label, descrizione, data).
+* **`uiStore.js`**: Stato dell'interfaccia (caricamenti, modali, snapshot del report).
+* **`dssStore.js`**: Facade Store che aggrega i moduli precedenti in un'unica interfaccia per i componenti Vue.
 
-* **`dssStore.js`**: Implementa il pattern *Facade*. Funge da orchestratore centrale esponendo in modo unificato i metodi e le proprietà reattive degli altri store, semplificando le dipendenze nei componenti.
-* **`mapStore.js`**: Detiene lo stato geografico: array degli archi totali, selezioni attive, identificatori degli archi chiusi e output dei calcoli di routing.
-* **`scenarioStore.js`**: Gestisce il ciclo di vita degli scenari, tracciando lo scenario correntemente attivo, lo stato di modifica (`isModified`) e la coda delle azioni pendenti che richiedono validazione.
-* **`uiStore.js`**: Contiene lo stato dell'interfaccia utente (caricamenti, messaggi di sistema) e funge da *State Container* globale per la visualizzazione dinamica di pannelli laterali e modali.
-* **`authStore.js`**: Modulo dedicato alla gestione dell'autenticazione utente e delle autorizzazioni di sessione.
+### 3. Logica Cartografica (Composables)
+* **`useMapDijkstra.js`**: Disegna il percorso ottimale come linea vettoriale verde indipendente dal grafo base.
+* **`useMapPrint.js`**: Gestisce lo zoom intelligente pre-stampa. Calcola i `bounds` matematici dei soli elementi rilevanti (rossi/verdi) e applica un padding asimmetrico per evitare che la legenda copra le strade nel report.
 
-### 3. Interfaccia Utente (Components)
-La directory `src/components/` è organizzata modularmente per favorire la riusabilità del codice.
-
-#### Componenti Strutturali
-* **`App.vue`**: Entry point dell'interfaccia. Agisce come layout container e gestisce il rendering dinamico dei modali globali tramite l'ascolto dello store UI.
-* **`MapGraph.vue` & `MapLegend.vue`**: Componenti di integrazione con la libreria Leaflet. Gestiscono il rendering del GeoJSON e l'emissione di eventi spaziali.
-
-#### Sidebar Sinistra (`src/components/tabs/`)
-Contiene i moduli operativi per l'interazione con l'utente:
-* **`TabArchivio.vue`**: Interfaccia di gestione degli scenari. Scomposta in `ScenarioSearch.vue` (input) e `ScenarioItem.vue` (riga di dettaglio con editing contestuale).
-* **`TabFunzioni.vue`**: Selettore per l'avvio delle analisi spaziali. Devolve la renderizzazione dei parametri ai moduli `DijkstraForm.vue` e `ConnectivityForm.vue`.
-* **`TabInterventi.vue`**: Pannello di riepilogo testuale per la visualizzazione delle modifiche attive sulla rete stradale.
-
-#### Sidebar Destra (`src/components/panels/`)
-Pannelli informativi contestuali alle selezioni effettuate sulla mappa:
-* **`SingleEdgePanel.vue` & `MultiEdgePanel.vue`**: Container per la visualizzazione dei dati in base alla cardinalità della selezione. Utilizzano componenti atomici per la renderizzazione:
-  * `EdgeInfoList.vue`: Componente presentazionale per i metadati stradali.
-  * `EdgeActionsSingle.vue` / `EdgeActionsMulti.vue`: Raggruppano i controlli operativi, delegando l'esecuzione dell'azione agli store superiori.
-
-#### Modali (`src/components/modals/`)
-Componenti in sovraimpressione gestiti tramite approccio *Modal Portal* centralizzato.
-* **`ConfirmDeleteModal.vue`**: Richiesta di conferma per operazioni distruttive (es. eliminazione scenario).
-* **`SavePromptModal.vue`**: Blocco preventivo in presenza di modifiche non salvate prima del cambio di contesto.
+### 4. Componenti UI
+* **`MapGraph.vue`**: Gestisce l'istanza Leaflet, il caricamento del GeoJSON e la cattura delle coordinate di click.
+* **`App.vue`**: Punto di ingresso che implementa l'**auto-scenario** al login, caricando immediatamente un ambiente di lavoro per l'operatore.
+* **`ReportTemplate.vue`**: Template A4 per la stampa. Utilizza una "gabbia" CSS (`object-fit: cover`) per garantire che lo snapshot della mappa sia perfettamente inquadrato senza sbavature.
 
 ---
 
-## Flusso Operativo dei Dati
+## Flusso Operativo Dijkstra & Report
 
-Di seguito un esempio del flusso unidirezionale dei dati, illustrato tramite l'azione di "chiusura di un tratto stradale":
-
-1. L'utente interagisce con un segmento sul componente `MapGraph.vue`.
-2. L'evento viene catturato da `App.vue`, che delega l'elaborazione chiamando il metodo `processMapClick` del modulo `dssStore.js`.
-3. Il `dssStore` registra la selezione in `mapStore` e notifica allo `uiStore` di aggiornare lo stato di visibilità del pannello di destra (`SidebarRight.vue`).
-4. Il componente `SingleEdgePanel.vue` o `MultiEdgePanel.vue` renderizza i metadati. L'utente esegue l'azione (click sul pulsante di chiusura).
-5. Il componente figlio emette l'evento verso lo store, che invoca `toggleEdgeStatus()`.
-6. La richiesta viene passata a `EdgeService.toggleEdge()`, che elabora la chiamata asincrona all'API (o al mock).
-7. Alla risoluzione della promise, il `mapStore` aggiorna l'array reattivo `activeClosureIds`.
-8. Contemporaneamente, lo `scenarioStore` aggiorna il flag `isModified` a `true`.
-9. I componenti in ascolto (incluso `MapGraph.vue`) intercettano la mutazione di stato e re-renderizzano le sezioni interessate dell'interfaccia in tempo reale.
+1. **Selezione**: L'utente clicca sulla mappa; il sistema cattura l'ID e le coordinate `latlng`.
+2. **Calcolo**: `RoutingService` traduce le coordinate in UTM e interroga il server Python.
+3. **Rendering**: Il server restituisce nodi `"x y"`; il servizio li riconverte in `[lat, lng]` e `useMapDijkstra` disegna la linea verde.
+4. **Stampa**: `PrintService` nasconde i layer inutili, la legenda scompare temporaneamente via `v-show`, `html2canvas` scatta la foto e il browser apre il dialogo di stampa.
 
 ---
 
-## Setup del Progetto
-
-1. Installazione delle dipendenze:
-   ```bash
-   npm install
-2. Assicurarsi che il layer geografico di base (`grafo_web.geojson`) sia regolarmente posizionato all'interno della directory `public/`.
-
-3. Per l'esecuzione in ambiente di sviluppo senza backend, verificare che in `src/apiConfig.js` sia impostata l'istruzione:
-    export const USE_MOCKS = true;  
-4. Avvio del server di sviluppo:
-    npm run dev
+## Setup
+1. `npm install`
+2. Posizionare `grafo_web.geojson` in `public/`.
+3. `npm run dev`
