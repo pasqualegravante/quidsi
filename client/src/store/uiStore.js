@@ -9,7 +9,6 @@ export const useUiStore = defineStore('ui', {
     activeModal: null,
     modalData: null,
     
-    // 🔥 NUOVI STATI PER LA SIDEBAR SINISTRA
     activeLeftTab: 'funzioni',
     isLeftSidebarCollapsed: false 
   }),
@@ -35,7 +34,6 @@ export const useUiStore = defineStore('ui', {
       alert(`[${type.toUpperCase()}] ${message}`); 
     },
 
-    // 🔥 NUOVE AZIONI PER COMANDARE LA SIDEBAR A DISTANZA
     setActiveTab(tabName) {
       this.activeLeftTab = tabName;
     },

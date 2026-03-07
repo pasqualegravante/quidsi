@@ -104,7 +104,7 @@ export const useScenarioStore = defineStore('scenario', {
         if (typeof ui.setActiveTab === 'function') ui.setActiveTab('archivio');
         if (typeof ui.setLeftSidebar === 'function') ui.setLeftSidebar(true);
         
-        ui.showToast("Nuova pratica creata. Rinominala in alto a sinistra.");
+        ui.showToast("Nuova pratica creata.");
       }
     },
 

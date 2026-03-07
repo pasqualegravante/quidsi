@@ -1,26 +1,26 @@
 <template>
   <div class="action-buttons">
     <button v-if="!allStreetSegmentsSelected" class="btn-blue" @click="$emit('select-entire-street')">
-      ⤡ Espandi all'intera VIA
+      Espandi all'intera VIA
     </button>
 
     <button v-if="!showSingleEdgeAction && canRestoreSingle" class="btn-outline-blue" @click="$emit('select-single-edge')">
-      ⤢ Riduci al tratto iniziale
+      Riduci al tratto iniziale
     </button>
 
     <template v-if="isMultiSelection">
-      <button class="btn-red" @click="$emit('toggle-bulk', true)">🔒 Chiudi tratti selezionati</button>
-      <button class="btn-green" @click="$emit('toggle-bulk', false)">🔓 Riapri tratti selezionati</button>
+      <button class="btn-red" @click="$emit('toggle-bulk', true)">Chiudi tratti selezionati</button>
+      <button class="btn-green" @click="$emit('toggle-bulk', false)">Riapri tratti selezionati</button>
     </template>
 
     <template v-else>
       <button :class="isSingleEdgeClosed ? 'btn-green' : 'btn-red'" @click="$emit('toggle-edge')">
-        {{ isSingleEdgeClosed ? '🔓 Apri Tratto' : '🔒 Chiudi Tratto' }}
+        {{ isSingleEdgeClosed ? 'Apri Tratto' : 'Chiudi Tratto' }}
       </button>
     </template>
 
     <button class="btn-wip" @click="$emit('set-weight')">
-      🚧 Imposta Peso (In Progress)
+      Imposta Peso (In Progress)
     </button>
   </div>
 </template>

@@ -26,10 +26,41 @@ export default {
 </script>
 
 <style scoped>
-.legenda-minimale { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.9); color: white; padding: 12px 30px; border-radius: 8px; z-index: 1000; font-size: 11px; font-weight: bold; text-transform: uppercase; border: 1px solid #334155; }
-.legenda-content { display: flex; gap: 20px; }
-.item { display: flex; align-items: center; gap: 8px; letter-spacing: 0.5px; }
-i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; }
+.legenda-minimale { 
+  position: absolute; 
+  bottom: 20px; 
+  left: 50%; 
+  transform: translateX(-50%); 
+  background: rgba(15, 23, 42, 0.9); 
+  color: white; 
+  padding: 8px 25px; 
+  border-radius: 6px;
+  z-index: 1000; 
+  font-size: 11px; 
+  font-weight: bold; 
+  text-transform: uppercase; 
+  border: 1px solid #334155; 
+}
+
+.legenda-content { 
+  display: flex; 
+  gap: 20px; 
+}
+
+.item { 
+  display: flex; 
+  align-items: center; 
+  gap: 6px; 
+  letter-spacing: 0.5px; 
+}
+
+i { 
+  display: inline-block; 
+  width: 12px; 
+  height: 12px; 
+  border-radius: 50%; 
+}
+
 .blue { background: #3b82f6; border: 2px solid white; }
 .red { background: #ef4444; border: 2px solid white; }
 .green { background: #22c55e; border: 2px solid white; }

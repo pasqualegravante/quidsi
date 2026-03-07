@@ -18,7 +18,7 @@ export default {
 </script>
 
 <style scoped>
-.btn-calcola { width: 100%; background: #e2e8f0; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; font-weight: bold; color: #1e293b; cursor: pointer; margin-top: 10px; transition: 0.2s; }
-.btn-calcola:hover { background: #cbd5e1; }
+.btn-calcola { width: 100%; background: #f1f5f9; border: none; padding: 12px; border-radius: 8px; font-weight: bold; color: #64748b; cursor: pointer; margin-top: 10px; transition: 0.2s; }
+.btn-calcola:hover { background: #e2e8f0; color: #1e293b; }
 .connessione-text { text-align: center; font-size: 13px; color: #334155; line-height: 1.5; margin: 30px 0; }
 </style>

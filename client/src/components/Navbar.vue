@@ -1,12 +1,18 @@
 <template>
   <header class="dss-navbar">
-    <NavbarTitle />
+    <div class="navbar-section section-left">
+      <NavbarTitle />
+    </div>
     
-    <div class="navbar-search-area">
-      <SearchBar />
+    <div class="navbar-section section-center">
+      <div class="search-wrapper">
+        <SearchBar />
+      </div>
     </div>
 
-    <NavbarActions @stampa-report="$emit('stampa-report')" />
+    <div class="navbar-section section-right">
+      <NavbarActions @stampa-report="$emit('stampa-report')" />
+    </div>
   </header>
 </template>
 
@@ -14,14 +20,13 @@
 import NavbarTitle from './navbar/NavbarTitle.vue';
 import NavbarActions from './navbar/NavbarActions.vue';
 import SearchBar from './SearchBar.vue';
-import { usePreventUnload } from '../composables/usePreventUnload'; // 🔥 Composable
+import { usePreventUnload } from '../composables/usePreventUnload'; 
 
 export default {
   name: 'Navbar',
   components: { NavbarTitle, SearchBar, NavbarActions },
   emits: ['stampa-report'],
   setup() {
-    // 🔥 Deleghiamo il blocco tab browser al composable. Componente pulitissimo!
     usePreventUnload(); 
     return {};
   }
@@ -32,19 +37,36 @@ export default {
 .dss-navbar { 
   height: 60px; 
   background: #0f172a; 
+  
   display: flex; 
   align-items: center; 
-  justify-content: space-between; 
+  justify-content: flex-start; 
+  
   padding: 0 20px; 
   color: white; 
   border-bottom: 1px solid #1e293b; 
   z-index: 1000; 
   position: relative; 
 }
-.navbar-search-area { 
-  flex: 1; 
-  display: flex; 
-  justify-content: center; 
-  padding: 0 20px; 
+
+.navbar-section {
+  display: flex;
+  align-items: center;
+}
+
+.section-left {
+  margin-right: 30px; 
+}
+
+.section-center {
+}
+
+.section-right {
+  margin-left: auto; 
+}
+
+.search-wrapper {
+  width: 380px; 
+  background: transparent; 
 }
 </style>

@@ -1,19 +1,7 @@
 <template>
-  <div class="navbar-left-area" v-if="dssStore.activeScenario">
-    <div class="scenario-brand-wrapper">
-      <span class="brand-icon" @click="goHome" title="Torna alla Home">🏙️</span>
-      <div class="scenario-edit-box">
-        <input 
-          ref="scenarioInput"
-          type="text" 
-          v-model="editableLabel" 
-          @blur="updateScenarioName" 
-          @keyup.enter="$event.target.blur()"
-          class="navbar-scenario-input" 
-          title="Clicca per rinominare la pratica" 
-        />
-        <span v-if="dssStore.isModified" class="unsaved-indicator">🔴 Da salvare</span>
-      </div>
+  <div class="navbar-left-area">
+    <div class="brand-wrapper" @click="goHome" title="Torna alla Home">
+      <span class="brand-text">Quidsi</span>
     </div>
   </div>
 </template>
@@ -27,47 +15,10 @@ export default {
     const dssStore = useDssStore();
     return { dssStore };
   },
-  data() {
-    return { 
-      editableLabel: '',
-      isInitializing: true 
-    };
-  },
-  watch: {
-    'dssStore.activeScenario.label': {
-      immediate: true,
-      handler(newVal) {
-        this.editableLabel = newVal || '';
-        this.$nextTick(() => { this.isInitializing = false; });
-      }
-    },
-    // 🔥 UX STRATAGEMMA 2: Auto-focus e selezione rapida
-    'dssStore.activeScenario.id': {
-      async handler(newId, oldId) {
-        // Se c'è un cambio di scenario e il nome contiene "Nuovo Scenario"
-        if (newId && oldId !== newId && this.dssStore.activeScenario?.label.toLowerCase().includes('nuovo scenario')) {
-          await this.$nextTick(); // Aspettiamo che Vue renderizzi l'input
-          if (this.$refs.scenarioInput) {
-            this.$refs.scenarioInput.focus();
-            this.$refs.scenarioInput.select(); // Seleziona tutto il testo "Nuovo Scenario" pronto per essere sovrascritto
-          }
-        }
-      }
-    }
-  },
   methods: {
-    updateScenarioName() {
-      if (!this.dssStore.activeScenario || this.isInitializing) return;
-
-      const trimmed = this.editableLabel.trim();
-      if (trimmed && trimmed !== this.dssStore.activeScenario.label) {
-        this.dssStore.updateScenarioLabel(trimmed);
-      } else {
-        this.editableLabel = this.dssStore.activeScenario.label;
-      }
-    },
     goHome() {
-      if (this.dssStore.isModified && !confirm("Modifiche non salvate. Uscire?")) return;
+      // Se ci sono modifiche non salvate, chiede conferma prima di ricaricare
+      if (this.dssStore.isModified && !confirm("Attenzione: hai modifiche non salvate. Sei sicuro di voler uscire e tornare alla Home?")) return;
       window.location.reload();
     }
   }
@@ -75,13 +26,26 @@ export default {
 </script>
 
 <style scoped>
-.navbar-left-area { min-width: 320px; display: flex; align-items: center; }
-.scenario-brand-wrapper { display: flex; align-items: center; gap: 12px; }
-.brand-icon { font-size: 22px; cursor: pointer; filter: grayscale(1) brightness(2); transition: 0.2s; }
-.brand-icon:hover { filter: none; transform: scale(1.1); }
-.scenario-edit-box { display: flex; flex-direction: column; justify-content: center; }
-.navbar-scenario-input { background: transparent; border: 1px solid transparent; color: #facc15; font-size: 16px; font-weight: 900; padding: 2px 4px; border-radius: 4px; width: 260px; outline: none; transition: 0.2s; cursor: text; }
-.navbar-scenario-input:hover { background: #1e293b; }
-.navbar-scenario-input:focus { background: white; color: #0f172a; }
-.unsaved-indicator { font-size: 10px; color: #ef4444; font-weight: bold; margin-top: -2px; }
+.navbar-left-area {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  margin: 0;
+  padding: 0;
+}
+
+.brand-wrapper {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.brand-text {
+  font-size: 22px; 
+  font-weight: 900;
+  color: #fbbf24; 
+  white-space: nowrap; 
+  margin: 0; 
+  padding: 0;
+}
 </style>

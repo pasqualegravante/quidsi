@@ -66,9 +66,12 @@ export default {
 .scenario-row { padding: 15px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: 0.2s; position: relative; }
 .scenario-row:hover { background: #f8fafc; }
 .active-scenario { background: #eff6ff !important; border-left: 4px solid #3b82f6; }
-.scen-label { font-weight: bold; color: #1e293b; display: block; font-size: 14px; }
-.scen-desc { font-size: 12px; color: #64748b; margin: 4px 0 0 0; }
-.mod-tag { color: #ef4444; font-size: 10px; margin-left: 5px; }
+
+.scen-label { font-weight: bold; color: #1e293b; display: block; font-size: 14px; white-space: normal; word-wrap: break-word; line-height: 1.3; }
+
+.scen-desc { font-size: 12px; color: #64748b; margin: 6px 0 0 0; white-space: normal; word-wrap: break-word; line-height: 1.4; }
+
+.mod-tag { color: #ef4444; font-size: 10px; margin-left: 5px; display: inline-block; }
 .scenario-actions { display: flex; gap: 8px; margin-top: 10px; justify-content: flex-end; }
 .scenario-actions button { background: white; border: 1px solid #cbd5e1; border-radius: 4px; padding: 5px 8px; cursor: pointer; transition: 0.2s; }
 .scenario-actions button:hover { background: #f1f5f9; }

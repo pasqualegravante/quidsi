@@ -1,10 +1,10 @@
 <template>
   <div class="action-buttons">
-    <button class="btn-red-light" @click="$emit('force-status', true)">🔒 Chiudi Selezionati</button>
-    <button class="btn-green-light" @click="$emit('force-status', false)">🔓 Riapri Selezionati</button>
+    <button class="btn-red-light" @click="$emit('force-status', true)">Chiudi Selezionati</button>
+    <button class="btn-green-light" @click="$emit('force-status', false)">Riapri Selezionati</button>
 
     <button class="btn-wip" @click="$emit('set-weight')" title="Feature in progress">
-      🚧 Imposta Peso (In Progress)
+      Imposta Peso (In Progress)
     </button>
   </div>
 </template>

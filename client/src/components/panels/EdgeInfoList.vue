@@ -7,7 +7,7 @@
     
     <p><strong>Dir:</strong> 
       <span>
-        {{ edge.oneWay === 1 ? '⬆️ Senso Unico' : '↕️ Doppio Senso' }}
+        {{ edge.oneWay === 1 ? 'Senso Unico' : 'Doppio Senso' }}
       </span>
     </p>
     

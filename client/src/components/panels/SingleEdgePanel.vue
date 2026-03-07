@@ -100,7 +100,7 @@ export default {
         this.uiStore.setCalculating(false);
       }
     },
-    impostaPeso() { this.uiStore.showToast("🚧 Funzionalità in lavorazione...", "info"); },
+    impostaPeso() { this.uiStore.showToast("Funzionalità in lavorazione...", "info"); },
     selectEntireStreet() {
       if (!this.singleEdge.street) return;
       const streetEdges = this.dssStore.allEdges.filter(e => e.street === this.singleEdge.street);

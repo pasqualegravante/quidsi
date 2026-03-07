@@ -6,29 +6,31 @@
         @click="selectTab('funzioni')" 
         title="Applica funzione"
       >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+        <span class="tab-label">Applica funzione</span>
       </button>
+
       <button 
         :class="['tab-btn', { active: uiStore.activeLeftTab === 'interventi' && !uiStore.isLeftSidebarCollapsed }]" 
         @click="selectTab('interventi')" 
         title="Interventi Attivi"
       >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+        <span class="tab-label">Interventi Attivi</span>
       </button>
+
       <button 
         :class="['tab-btn', { active: uiStore.activeLeftTab === 'archivio' && !uiStore.isLeftSidebarCollapsed }]" 
         @click="selectTab('archivio')" 
         title="Archivio Scenari"
       >
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path></svg>
+        <span class="tab-label">Archivio Scenari</span>
       </button>
     </div>
 
     <div class="tab-content-area" :class="{ 'is-collapsed': uiStore.isLeftSidebarCollapsed }">
       <div class="tab-content-inner">
-        <TabFunzioni v-if="uiStore.activeLeftTab === 'funzioni'" @collapse="uiStore.setLeftSidebar(false)" />
-        <TabInterventi v-if="uiStore.activeLeftTab === 'interventi'" @collapse="uiStore.setLeftSidebar(false)" />
-        <TabArchivio v-if="uiStore.activeLeftTab === 'archivio'" @collapse="uiStore.setLeftSidebar(false)" />
+        <TabFunzioni v-show="uiStore.activeLeftTab === 'funzioni'" @collapse="uiStore.setLeftSidebar(false)" />
+        <TabInterventi v-show="uiStore.activeLeftTab === 'interventi'" @collapse="uiStore.setLeftSidebar(false)" />
+        <TabArchivio v-show="uiStore.activeLeftTab === 'archivio'" @collapse="uiStore.setLeftSidebar(false)" />
       </div>
     </div>
   </div>
@@ -36,7 +38,7 @@
 
 <script>
 import { useDssStore } from '../store/dssStore';
-import { useUiStore } from '../store/uiStore'; // 🔥 Importato l'UI Store
+import { useUiStore } from '../store/uiStore';
 import { onMounted } from 'vue';
 import TabFunzioni from './tabs/TabFunzioni.vue';
 import TabInterventi from './tabs/TabInterventi.vue';
@@ -47,7 +49,7 @@ export default {
   components: { TabFunzioni, TabInterventi, TabArchivio },
   setup() {
     const dssStore = useDssStore();
-    const uiStore = useUiStore(); // 🔥 Inizializzato l'UI Store
+    const uiStore = useUiStore(); 
     
     onMounted(() => { dssStore.fetchAllScenarios(); });
     
@@ -55,27 +57,91 @@ export default {
   },
   methods: {
     selectTab(tabName) {
-      // Se clicco sul tab già aperto, lo chiudo. Altrimenti cambio tab e lo apro.
       if (this.uiStore.activeLeftTab === tabName && !this.uiStore.isLeftSidebarCollapsed) {
-        this.uiStore.setLeftSidebar(false); // Chiude
+        this.uiStore.setLeftSidebar(false); 
       } else {
-        this.uiStore.setActiveTab(tabName); // Cambia tab
-        this.uiStore.setLeftSidebar(true);  // Apre
+        this.uiStore.setActiveTab(tabName); 
+        this.uiStore.setLeftSidebar(true);  
       }
     }
   }
 }
 </script>
-
 <style scoped>
-.sidebar-left-wrapper { display: flex; height: 100%; background: #f8fafc; border-right: 1px solid #cbd5e1; z-index: 1000; position: relative; }
-.vertical-tabs { display: flex; flex-direction: column; width: 55px; background: #e2e8f0; border-right: 1px solid #cbd5e1; z-index: 10; align-items: center; padding-top: 15px; gap: 10px; }
-.tab-btn { width: 40px; height: 40px; border-radius: 8px; cursor: pointer; border: none; background: transparent; color: #64748b; transition: 0.2s; display: flex; justify-content: center; align-items: center; }
-.tab-btn svg { width: 24px; height: 24px; }
-.tab-btn:hover { background: #cbd5e1; color: #0f172a; }
-.tab-btn.active { background: #3b82f6; color: white; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.4); }
+.sidebar-left-wrapper { 
+  display: flex; 
+  height: 100%; 
+  z-index: 1000; 
+  position: relative; 
+}
 
-.tab-content-area { width: 320px; background: white; transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); overflow: hidden; }
-.tab-content-area.is-collapsed { width: 0; }
-.tab-content-inner { width: 320px; height: 100%; overflow-y: auto; }
+.vertical-tabs { 
+  display: flex; 
+  flex-direction: column; 
+  width: 35px; 
+  background: #e2e8f0; 
+  border-right: 1px solid #cbd5e1; 
+  z-index: 10; 
+  align-items: center; 
+}
+
+.tab-btn { 
+  width: 100%; 
+  height: 110px; 
+  cursor: pointer; 
+  border: none; 
+  border-bottom: 1px solid #cbd5e1; 
+  border-right: 1px solid #cbd5e1;
+  /* 🔥 Bordo trasparente per non far saltare il bottone quando si attiva */
+  border-left: 3px solid transparent; 
+  background: transparent; 
+  color: #64748b; 
+  transition: 0.2s; 
+  display: flex; 
+  justify-content: center; 
+  align-items: center; 
+  padding: 0; 
+}
+
+.tab-btn:hover { 
+  background: #f1f5f9; 
+  color: #0f172a; 
+}
+
+.tab-btn.active { 
+  background: white; 
+  color: #0f172a; 
+  font-weight: 700;
+  border-right: 3px solid #2563eb; 
+}
+
+.tab-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-family: 'Inter', sans-serif; 
+  font-size: 12px; 
+  white-space: nowrap;
+  padding: 15px 0; 
+}
+
+.tab-content-area { 
+  width: clamp(280px, 20vw, 400px); 
+  background: white; 
+  border-right: 1px solid #cbd5e1;
+  transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); 
+  overflow: hidden; 
+  display: flex;
+}
+
+.tab-content-area.is-collapsed { 
+  width: 0; 
+  min-width: 0; 
+  border-right: none;
+}
+
+.tab-content-inner { 
+  width: clamp(280px, 20vw, 400px); 
+  height: 100%; 
+  overflow: hidden; 
+}
 </style>

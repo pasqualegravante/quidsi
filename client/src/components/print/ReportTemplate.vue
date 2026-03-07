@@ -36,11 +36,11 @@
           </tr>
           <tr>
             <td><strong>Punto di Partenza (A):</strong></td>
-            <td>{{ dssStore.routingStartPoint ? 'Coordinate Selezionate' : 'Non Impostato' }}</td>
+            <td>{{ getPointLabel(dssStore.routingStartPoint) }}</td>
           </tr>
           <tr>
             <td><strong>Punto di Arrivo (B):</strong></td>
-            <td>{{ dssStore.routingEndPoint ? 'Coordinate Selezionate' : 'Non Impostato' }}</td>
+            <td>{{ getPointLabel(dssStore.routingEndPoint) }}</td>
           </tr>
         </table>
       </div>
@@ -88,7 +88,6 @@ export default {
     
     const groupedClosures = computed(() => {
       const groups = {};
-      // Raggruppa i segmenti per nome della strada per una tabella più leggibile
       if (dssStore.activeClosuresObjects) {
         dssStore.activeClosuresObjects.forEach(edge => {
           const name = edge.street || 'Via Sconosciuta';
@@ -99,8 +98,33 @@ export default {
       return Object.values(groups);
     });
 
+    // 🔥 FIX: Funzione intelligente per estrarre il nome della via 
+    const getPointLabel = (pt) => {
+      if (!pt) return 'Non Impostato';
+      
+      // 1. Se il punto è già un oggetto ricco con il nome della via
+      if (pt.street) return pt.street;
+      if (pt.desvia) return pt.desvia;
+      if (pt.name) return pt.name;
+      
+      // 2. Se è una coordinata o un ID, cerchiamo in tutta la lista delle vie
+      if (typeof pt === 'string' || typeof pt === 'number') {
+        const edge = dssStore.allEdges?.find(e => String(e.id) === String(pt));
+        if (edge && (edge.street || edge.desvia)) {
+          return edge.street || edge.desvia;
+        }
+        // Se proprio non la trova, ti mostra almeno i numeretti invece di un testo finto
+        return `Coord: ${pt}`; 
+      }
+      
+      return 'Punto Selezionato';
+    };
+
     return { 
-      dssStore, uiStore, groupedClosures,
+      dssStore, 
+      uiStore, 
+      groupedClosures, 
+      getPointLabel, // Esportiamo la funzione al template
       currentDate: computed(() => new Date().toLocaleDateString('it-IT')),
       protocol: computed(() => Math.floor(100000 + Math.random() * 900000))
     };

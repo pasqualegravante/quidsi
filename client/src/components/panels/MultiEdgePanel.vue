@@ -47,7 +47,7 @@ export default {
       }
     },
     impostaPeso() {
-      this.uiStore.showToast("🚧 Funzionalità 'Imposta Peso' in lavorazione (WIP)...", "info");
+      this.uiStore.showToast("Funzionalità 'Imposta Peso' in lavorazione (WIP)...", "info");
     }
   }
 }
