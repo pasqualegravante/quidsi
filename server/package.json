@@ -17,6 +17,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.5.1",
     "sanitize-html": "^2.13.0",
+    "undici": "^7.22.0",
     "validator": "^13.12.0"
   },
   "devDependencies": {

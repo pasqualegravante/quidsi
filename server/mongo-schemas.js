@@ -58,4 +58,16 @@ const accessSchema = new mongoose.Schema({
 accessSchema.set("autoIndex", false);
 const Accesses = mongoose.model("Accesses", accessSchema);
 
-module.exports = { Users, Accesses};
+////////
+
+const scenarioSchema = new mongoose.Schema({
+    user_id: { type: mongoose.Types.ObjectId, index: true, ref: 'User' },
+    label: { type: String, default: "Senza titolo"},
+    description: { type: String, default: "(vuoto)" },
+    creation_date: { type: Date, default: Date.now() },
+    access_date: { type: Date, default: Date.now() },
+    closed_segments: { type: [[String]], default: [] },
+    alfa: { type: mongoose.Types.Double, default: 0.5 }
+});
+const Scenarios = mongoose.model("Scenario", scenarioSchema);
+module.exports = { Users, Accesses, Scenarios};
