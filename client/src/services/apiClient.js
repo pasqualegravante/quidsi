@@ -1,8 +1,7 @@
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 
-// 🔥 FIX: Il fallback ora punta correttamente a Node sulla 4000
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''; // Usa path relativo o variabile d'ambiente
 
 export const apiClient = {
   async request(endpoint, options = {}) {
@@ -14,14 +13,14 @@ export const apiClient = {
       ...options.headers,
     };
 
-    if (authStore.token) {
-      headers['Authorization'] = `Bearer ${authStore.token}`;
-    }
+    // RIMOSSA l'iniezione del Bearer token. 
+    // Il browser gestirà il token JWT tramite Cookie HttpOnly automaticamente
+    // grazie a credentials: 'include'.
 
     const config = {
       ...options,
       headers,
-      credentials: 'include',
+      credentials: 'include', // Fondamentale per inviare i Cookie HttpOnly al server
     };
 
     try {
@@ -29,10 +28,8 @@ export const apiClient = {
 
       if (response.status === 401) {
         console.warn("Sessione scaduta o non autorizzata. Esecuzione logout forzato.");
-        
         authStore.logout(); 
         uiStore.showToast("La tua sessione è scaduta. Effettua di nuovo l'accesso.", "error");
-        
         throw new Error("Unauthorized 401");
       }
 
@@ -41,8 +38,12 @@ export const apiClient = {
         throw new Error(errorData.message || `Errore HTTP: ${response.status}`);
       }
 
+      // Gestione del NoContent
       if (response.status === 204) return null;
-      return await response.json();
+      
+      // Il login restituisce body vuoto secondo le specifiche, gestiamolo
+      const text = await response.text();
+      return text ? JSON.parse(text) : {};
 
     } catch (error) {
       console.error(`[API Client Error] su ${endpoint}:`, error.message);
@@ -54,12 +55,15 @@ export const apiClient = {
     return this.request(endpoint, { ...options, method: 'GET' });
   },
   post(endpoint, data, options = {}) {
-    return this.request(endpoint, { ...options, method: 'POST', body: JSON.stringify(data) });
+    // Se data è undefined, passa un body vuoto per evitare errori di parsing sul server
+    return this.request(endpoint, { ...options, method: 'POST', body: JSON.stringify(data || {}) });
   },
   put(endpoint, data, options = {}) {
-    return this.request(endpoint, { ...options, method: 'PUT', body: JSON.stringify(data) });
+    return this.request(endpoint, { ...options, method: 'PUT', body: JSON.stringify(data || {}) });
   },
-  delete(endpoint, options = {}) {
-    return this.request(endpoint, { ...options, method: 'DELETE' });
+  delete(endpoint, data, options = {}) {
+    // Aggiunto data anche per la delete, in quanto alcune api (es /scenario/delete)
+    // richiedono il payload nel body.
+    return this.request(endpoint, { ...options, method: 'DELETE', body: JSON.stringify(data || {}) });
   }
 };

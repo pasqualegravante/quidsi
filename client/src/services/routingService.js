@@ -1,37 +1,27 @@
 import { apiClient } from './apiClient';
-import proj4 from 'proj4';
-
-const UTM_32N = "+proj=utm +zone=32 +ellps=GRS80 +units=m +no_defs";
-const WGS84 = "EPSG:4326";
-
-const toUTM = (lat, lng) => proj4(WGS84, UTM_32N, [lng, lat]);
-const toLatLng = (x, y) => proj4(UTM_32N, WGS84, [x, y]);
 
 export const RoutingService = {
+  
   async calculateDijkstra(uid, scen_id, payload) {
-    const startUTM = toUTM(payload.startPoint.latlng.lat, payload.startPoint.latlng.lng);
-    const endUTM = toUTM(payload.endPoint.latlng.lat, payload.endPoint.latlng.lng);
-
-    const requestBody = {
-      id: scen_id,
-      alfa: payload.alfa,
-      source: `${startUTM[0]} ${startUTM[1]}`, 
-      target: `${endUTM[0]} ${endUTM[1]}`
+    // Peschiamo il nodo UTM esatto dell'arco selezionato per evitare "NodeNotFound" in NetworkX
+    const getExactNode = (pointData) => {
+      if (pointData && pointData.nodes && pointData.nodes.length > 0) {
+        return pointData.nodes[0]; // Ritorna l'array [x, y] in UTM
+      }
+      throw new Error("Punto di routing invalido (nodi mancanti)");
     };
 
-    // CHIAMATA REALE AL BACKEND (via proxy Node)
-    const data = await apiClient.post('/engine/compute/dijkstra', requestBody);
+    const requestBody = {
+      uid: uid,
+      scen_id: scen_id,
+      source: getExactNode(payload.startPoint), // Invia un array [x, y]
+      target: getExactNode(payload.endPoint)    // Invia un array [x, y]
+    };
 
-    const latLngPath = data.map(pt => {
-      const [x, y] = pt.split(' ').map(Number);
-      const [lng, lat] = toLatLng(x, y);
-      return [lat, lng];
-    });
-
-    return { path: latLngPath };
+    return await apiClient.post('/scenario/djk', requestBody);
   },
 
   async calculateConnectedComponents(uid, scen_id) {
-    return await apiClient.post(`/engine/compute/scc`, { id: scen_id });
+    return await apiClient.post('/scenario/cc', { uid, scen_id });
   }
 };

@@ -2,32 +2,45 @@ import { apiClient } from './apiClient';
 
 export const ScenarioService = {
   
+  // POST /scenario/get-all
+  // Payload: { uid: "..." }
   async getAllScenarios(uid) {
-    return await apiClient.get(`/scenarios?uid=${uid}`);
+    return await apiClient.post('/scenario/get-all', { uid });
   },
 
-  async selectScenario(uid, scenarioId) {
-    return await apiClient.get(`/scenarios/${scenarioId}?uid=${uid}`);
+  // POST /scenario/select
+  // Payload: { uid: "...", scen_id: "..." }
+  async selectScenario(uid, scen_id) {
+    return await apiClient.post('/scenario/select', { uid, scen_id });
   },
 
-  async saveScenario(uid, scenarioId) {
-    return await apiClient.post(`/scenarios/${scenarioId}/save`, { uid });
+  // POST /scenario/save
+  // Payload: { uid: "...", scen_id: "..." }
+  async saveScenario(uid, scen_id) {
+    return await apiClient.post('/scenario/save', { uid, scen_id });
   },
 
+  // POST /scenario/new
+  // Payload: { uid: "..." }
   async createScenario(uid) {
-    return await apiClient.post('/scenarios', { uid });
+    return await apiClient.post('/scenario/new', { uid });
   },
 
-  async updateScenario(uid, scenarioId, payload) {
-    // Payload contiene { label, description }
-    return await apiClient.put(`/scenarios/${scenarioId}`, { uid, ...payload });
+  // (Non menzionato esplicitamente nelle specifiche attuali, ma mantengo la struttura per la tua UI)
+  async updateScenario(uid, scen_id, payload) {
+    return await apiClient.post('/scenario/update', { uid, scen_id, ...payload });
   },
 
-  async duplicateScenario(uid, scenarioId) {
-    return await apiClient.post(`/scenarios/${scenarioId}/duplicate`, { uid });
+  // POST /scenario/duplicate
+  // Payload: { uid: "...", scenario: "..." }
+  // ATTENZIONE: le specifiche indicano la chiave 'scenario' al posto di 'scen_id' per questo endpoint
+  async duplicateScenario(uid, scenario) {
+    return await apiClient.post('/scenario/duplicate', { uid, scenario });
   },
 
-  async deleteScenario(uid, scenarioId) {
-    return await apiClient.delete(`/scenarios/${scenarioId}?uid=${uid}`);
+  // DELETE /scenario/delete
+  // Payload: { uid: "...", scen_id: "..." }
+  async deleteScenario(uid, scen_id) {
+    return await apiClient.delete('/scenario/delete', { uid, scen_id });
   }
 };
