@@ -1,11 +1,20 @@
 import { apiClient } from './apiClient';
 
 export const EdgeService = {
-  async toggleEdge(uid, scenarioId, edgeId) {
-    return await apiClient.post('/edge/toggle', { 
-      uid, 
-      scenarioId, 
-      edgeId: String(edgeId) 
+  
+  // Aggiungere una chiusura nel Frontend = Chiedere a Python di ELIMINARE l'arco
+  async addEdgeClosure(scenarioId, edgeId) {
+    return await apiClient.request('/engine/edge/delete', {
+      method: 'DELETE',
+      body: JSON.stringify({ id: scenarioId, edges: [String(edgeId)] })
+    });
+  },
+  
+  // Rimuovere una chiusura nel Frontend = Chiedere a Python di AGGIUNGERE l'arco
+  async removeEdgeClosure(scenarioId, edgeId) {
+    return await apiClient.post('/engine/edge/add', { 
+      id: scenarioId, 
+      edges: [String(edgeId)] 
     });
   }
 };

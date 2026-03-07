@@ -1,32 +1,47 @@
 version: '3.8'
 
 services:
-  # --- FRONTEND (Vue.js) ---
   client:
     build: ./client
     ports:
-      - "5173:5173" # Espone Vue sul tuo browser
+      - "5173:5173"
     volumes:
       - ./client:/app
-      - /app/node_modules # Protegge le dipendenze interne
+      - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:4000 # Indirizzo che il BROWSER userà per le API
-    command: npm run dev -- --host 0.0.0.0 # Fondamentale per rendere Vue accessibile
+      - VITE_API_BASE_URL=http://localhost:4000
+    command: npm run dev -- --host 0.0.0.0
 
-  # --- BACKEND (Il tuo Server) ---
   server:
     build: ./server
     ports:
       - "4000:4000"
     volumes:
       - ./server:/app
+      - /app/node_modules
     environment:
-      - MONGO_URL=mongodb://database:27017/quidsi # Se usi un DB
+      - MONGODB_URI=mongodb://database:27017/quidsi
+      # 🔥 AGGIUNTE VARIABILI MANCANTI PER JWT E PROXY
+      - JWT_SECRET=segreto_super_sicuro_123
+      - COOKIE_TTL=3600000
+      - PYTHON_URL=http://engine:8000
     depends_on:
-      - database # Solo se hai anche il modulo DB
+      - database
+      - engine
 
-  # --- DATABASE (Opzionale) ---
+  engine:
+    build: ./server/pybackend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./server/pybackend:/app
+
   database:
     image: mongo:latest
     ports:
       - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+volumes:
+  mongo_data:

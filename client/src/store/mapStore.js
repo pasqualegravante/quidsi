@@ -61,7 +61,6 @@ export const useMapStore = defineStore('map', {
       this.routingEndPoint = null;
     },
 
-    // 🔥 FIX: Aggiunto try/catch e loader per le componenti connesse
     async calculateConnectedComponents() {
       const ui = useUiStore();
       const auth = useAuthStore();
@@ -83,7 +82,6 @@ export const useMapStore = defineStore('map', {
       }
     },
 
-    // 🔥 FIX: Aggiunto try/catch, rollback e loader per chiusura via intera
     async toggleStreetStatus(uid, scenId, streetName, shouldClose) {
       const ui = useUiStore();
       const edgesToToggle = this.allEdges.filter(e => e.street === streetName);
@@ -94,13 +92,15 @@ export const useMapStore = defineStore('map', {
         for (const edge of edgesToToggle) {
           const isClosed = this.activeClosureIds.includes(edge.id);
           if ((shouldClose && !isClosed) || (!shouldClose && isClosed)) {
-            const res = await EdgeService.toggleEdge(uid, scenId, edge.id);
-            if (res && res.toggled) {
+            
+            const res = shouldClose 
+              ? await EdgeService.addEdgeClosure(scenId, edge.id)
+              : await EdgeService.removeEdgeClosure(scenId, edge.id);
+
+            if (res) {
               const idx = this.activeClosureIds.indexOf(edge.id);
               idx > -1 ? this.activeClosureIds.splice(idx, 1) : this.activeClosureIds.push(edge.id);
               success = true;
-            } else {
-              throw new Error(`Errore API sull'arco ${edge.id}`);
             }
           }
         }
@@ -113,13 +113,19 @@ export const useMapStore = defineStore('map', {
       return success;
     },
 
-    // 🔥 FIX: Aggiunto try/catch e loader silente per chiusura arco singolo
+    // 🔥 FIX: Ora chiama add/remove al posto del defunto toggleEdge
     async toggleEdgeStatus(uid, scenId, edgeId) {
       const ui = useUiStore();
       ui.setCalculating(true, "Modifica stato arco...");
       try {
-        const res = await EdgeService.toggleEdge(uid, scenId, edgeId);
-        if (res && res.toggled) {
+        const isClosed = this.activeClosureIds.includes(edgeId);
+        
+        // Determiniamo dinamicamente quale rotta chiamare
+        const res = isClosed 
+          ? await EdgeService.removeEdgeClosure(scenId, edgeId)
+          : await EdgeService.addEdgeClosure(scenId, edgeId);
+
+        if (res) {
           const idx = this.activeClosureIds.indexOf(edgeId);
           idx > -1 ? this.activeClosureIds.splice(idx, 1) : this.activeClosureIds.push(edgeId);
           return true;
@@ -135,7 +141,6 @@ export const useMapStore = defineStore('map', {
       }
     },
 
-    // 🔥 FIX: Aggiunto catch con avviso all'utente
     async calculateDijkstra() {
       const ui = useUiStore();
       const auth = useAuthStore();

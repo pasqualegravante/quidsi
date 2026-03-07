@@ -3,52 +3,43 @@ const {formidable}  = require("formidable");
 const {Users}       = require("./mongo-schemas");
 
 const authenticate = async (req, res, next) => {
-    const token = req.cookies.session_id;
-    //console.log(token);
+    // 🔥 FIX: Cerca il token sia nei cookie che nell'header Bearer
+    let token = req.cookies?.session_id;
+    if (!token && req.headers['authorization']) {
+        token = req.headers['authorization'].split(' ')[1];
+    }
+    
+    if (!token) return res.status(401).send("Nessun token di accesso fornito.");
     
     try {
         const payload = await jwt.verify(
             token,
-            process.env.JWT_SECRET,
-            {algorithms: process.env.JWT_ALG},
-            (err, token)=>{
-                if(err)
-                    throw err;
-
-                return token;
-            }
+            process.env.JWT_SECRET || "segreto",
+            {algorithms: process.env.JWT_ALG || 'HS256'}
         );
 
-        if(payload.exp<Date.now())
+        if(payload.exp < Date.now())
             throw new jwt.TokenExpiredError("Token expired", new Date(payload.exp));
 
         const user = await Users.findById(payload.sub).exec();
         if(!user)
-            throw new Error("No user found with this token.");
+            throw new Error("Utente non trovato nel database.");
         
-        res.locals.user=user;
+        res.locals.user = user;
         next();
     } catch (error) {
-        console.log(error);
-        res.status(401).send("Client error: Authentication failed. Try to login again.");
+        console.log("Errore Autenticazione:", error.message);
+        res.status(401).send("Autenticazione fallita. Effettua nuovamente il login.");
     }
 }
 
-/**
- * @param {*} req 
- * @param {*} res 
- * @param {*} next
- * Retrieves html form and saves data in res.locals.fields and res.locals.files
- */
 const retrieveHtmlForm = (req, res, next)=>{
     const form = formidable({});
-    
     form.parse(req, (err, fields, files)=>{
         if(err){
             console.log(err);
-            res.status(500).send("Server error: Obtaining form data failed.");//fix error, not always 500, can be also 400
-        }
-        else{
+            res.status(500).send("Server error: Obtaining form data failed.");
+        } else {
             res.locals.fields=fields;
             res.locals.files=files;
             next();

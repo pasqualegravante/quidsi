@@ -1,58 +1,25 @@
 const mongoose = require("mongoose");
 const validator = require("validator");
+
 const userSchema = new mongoose.Schema({
-    name: { type: String, required: [true, "Name is a required field."] },
-    surname: { type: String, required: [true, "Surname is a required field."] },
-    nickname: { type: String, required: [true, "Nickname is a required field."], unique: [true, "The given nickname already exists."] },
+    name: { type: String },
+    surname: { type: String },
     password: {
         type: String,
-        required: [true, "Password is a required field."]/*,
-        validate(value) {
-            if (typeof value !== 'string') {
-                throw new Error("Password must be a string");
-            }
-            let error = "";
-            if (value.length < 6 || value.length > 20) {
-                error += "- Password must be between 6 and 20 characters long\n";
-            }
-            if (!/[a-z]/.test(value)) {
-                error += "- Password must contain at least one lowercase character\n";
-            }
-            if (!/[A-Z]/.test(value)) {
-                error += "- Password must contain at least one uppercase character\n";
-            }
-            if (!/[0-9]/.test(value)) {
-                error += "- Password must contain at least one digit\n";
-            }
-            if (!/[^A-Za-z0-9]/.test(value)) {
-                error += "- Password must contain at least one special character\n";
-            }
-
-            if (error !== "") {
-                throw new Error("Password must respect these conditions:\n" + error);
-            }
-        }*/
+        required: [true, "Password is a required field."]
     },
     email: {
         type: String,
         required: [true, "Email is a required field."],
-        unique: [true, "The given email already exists."],
-        validate(value) {
-            if (!validator.isEmail(value))
-                throw new Error("Please enter a valid e-mail.");
-        }
+        unique: [true, "The given email already exists."]
     },
-    birth: { type: Date, required: [true, "Birth is a required field."] }, //Have to check if that user has at least 16yo
     profilepic: String,
-    settings: {type: Object},
-    followers: {type:[String]}
-});
-const Users = mongoose.model("Users", userSchema);
-
-////////
+    settings: {type: Object}
+}, {collection:"utente"});
+const Users = mongoose.model("Utente", userSchema);
 
 const accessSchema = new mongoose.Schema({
-    user_id: { type: mongoose.Types.ObjectId, index: true, ref: 'User' },
+    user_id: { type: mongoose.Types.ObjectId, index: true, ref: 'Utente' },
     token: String,
     access_date: { type: Date, default: Date.now() },
     ipaddr: String
@@ -60,4 +27,15 @@ const accessSchema = new mongoose.Schema({
 accessSchema.set("autoIndex", false);
 const Accesses = mongoose.model("Accesses", accessSchema);
 
-module.exports = { Users, Accesses};
+// 🔥 NUOVO: Schema per le Pratiche/Scenari
+const scenarioSchema = new mongoose.Schema({
+    user_id: { type: mongoose.Types.ObjectId, index: true, ref: 'Utente' },
+    label: { type: String, default: "Nuovo Scenario" },
+    description: { type: String, default: "" },
+    closed_segments: { type: [String], default: [] }, // Array di ID degli archi chiusi
+    alfa: { type: Number, default: 0.5 },
+    created_at: { type: Date, default: Date.now }
+}, {collection: "scenario"});
+const Scenarios = mongoose.model("Scenario", scenarioSchema);
+
+module.exports = { Users, Accesses, Scenarios };

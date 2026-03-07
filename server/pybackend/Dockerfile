@@ -1,15 +1,13 @@
-FROM python:3.10-slim
+# Usa Python 3.11 invece di 3.10
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Installa le librerie necessarie per il DSS
-RUN pip install fastapi uvicorn networkx pymongo pydantic
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia i file del motore Python
 COPY . .
 
-# Espone la porta di FastAPI
-EXPOSE 5000
+EXPOSE 8000
 
-# Avvia il server FastAPI
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
