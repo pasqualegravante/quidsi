@@ -13,4 +13,4 @@ class dijkstra_req(scenario_req):
     target: str
 
 class edge_req(scenario_req):
-    edges: List[str]
+    edges: List[Tuple[str, str]]

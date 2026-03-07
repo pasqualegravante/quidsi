@@ -1,4 +1,0 @@
-fastapi
-uvicorn
-networkx<3.3  # Blocchiamo la versione per compatibilità con Python 3.10
-pydantic

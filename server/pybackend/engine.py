@@ -1,126 +1,126 @@
 import networkx as nx
-import math
 from typing import List, Dict, Tuple
 from pathlib import Path
-from translator import geojson_to_nx
+from translator import csv_to_nx
 
 class GraphEngine:
     def __init__(self):
+        #self.base_graph_path = Path(base_graph_path)
         self.base_graph: nx.Graph = self._load_base_graph()
 
     def _load_base_graph(self) -> nx.Graph:
-        return geojson_to_nx()
+        return csv_to_nx()
 
-    def _get_nearest_node(self, G: nx.Graph, coords_str: str) -> str:
-        try:
-            req_x, req_y = map(float, coords_str.split())
-        except:
-            return coords_str 
-            
-        closest_node = None
-        min_dist = float('inf')
-        for node in G.nodes():
-            try:
-                nx_x, nx_y = map(float, str(node).split())
-                dist = math.sqrt((req_x - nx_x)**2 + (req_y - nx_y)**2)
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_node = node
-            except:
-                continue
-        return closest_node if closest_node else coords_str
-
-    def build_scenario_graph(self, closed_segments: List[str], alfa: float, manual_weights: Dict[str, float]) -> nx.Graph:
-        g = self.base_graph.copy()
-        is_multi = g.is_multigraph()
+    def build_scenario_graph(self,
+                            closed_segments: List[str], 
+                            alfa: float, 
+                            manual_weights: Dict[str, float]) -> nx.Graph:
         
-        if not closed_segments:
-            closed_segments = []
-            
+        g: nx.Graph = None
+    
+        g = self.base_graph.copy()
+        # 1. Rimuovi archi chiusi
         for eid in closed_segments:
-            edges_to_remove = []
-            
-            # 🔥 FIX: Nascondiamo la parola 'keys' se non è un multigraph
-            edges_iterator = g.edges(data=True, keys=True) if is_multi else g.edges(data=True)
-            
-            for edge in edges_iterator:
-                if str(edge[-1].get("edge_id")) == str(eid):
-                    edges_to_remove.append(edge)
-            
-            for edge in edges_to_remove:
-                if is_multi:
-                    g.remove_edge(edge[0], edge[1], key=edge[2])
-                else:
-                    g.remove_edge(edge[0], edge[1])
+            for u, v, k, data in list(g.edges(keys=True, data=True)):
+                if data.get("edge_id") == eid:
+                    g.remove_edge(u, v, k)
+                    break
+        """
+        # 2. Applica formula pesi
+        for u, v, k, data in G.edges(keys=True, data=True):
+            eid = data.get("edge_id")
+            if eid in manual_weights:
+                data["weight"] = manual_weights[eid]
+            else:
+                obj = data.get("objective_weight", 1.0)
+                subj = data.get("subjective_weight", obj)  # fallback
+                data["weight"] = obj * alfa + subj * (1 - alfa)
+        """
+
         return g
 
-    def compute_dijkstra(self, G: nx.Graph, source: str, target: str) -> List[Dict]:
+    def compute_dijkstra(self, 
+                         G : nx.Graph,
+                         source: str,
+                         target: str) -> List[Dict]:
+        """Ritorna lista di edge del percorso (o [] se non esiste)"""
+
+        # G = self._build_scenario_graph(closed_segments, alfa, manual_weights)
+        
         try:
-            real_source = self._get_nearest_node(G, source)
-            real_target = self._get_nearest_node(G, target)
-            node_path = nx.dijkstra_path(G, real_source, real_target)
-            return {"code": 200, "res": node_path}
+            node_path = nx.dijkstra_path(G, source, target)
+            #potrà banalmente essere shortest_path, calcolo probabilmente più ottimizzato, leggiamo docuemntazione
+            """edge_path = []
+            for i in range(len(node_path)-1):
+                u = node_path[i]
+                v = node_path[i+1]
+                edge_data = G.get_edge_data(u, v)
+                # se MultiGraph prendi il primo (o gestisci key)
+                if isinstance(edge_data, dict):
+                    edge_data = list(edge_data.values())[0]
+                edge_path.append({
+                    "edge_id": edge_data.get("edge_id"),
+                    "u": u,
+                    "v": v,
+                    "weight": edge_data.get("weight")
+                })"""
+            return {"code":200, "res":node_path}
+        
         except nx.NetworkXNoPath:
-            return {"code": 400, "res": []}
+            print("No path")
+            return {"code":400, "res":[]}
+        
         except Exception as e:
-            return {"code": 500, "res": []}
+            print("Unexpected exception: ", e)
+            return {"code":500, "res":[]}
 
     def compute_scc(self, G: nx.DiGraph):
-        return {"code": 200, "res": nx.number_strongly_connected_components(G)}
+        """Ritorna (num_cc, lista di liste di edge_id per componente)"""
+        # G = self._build_scenario_graph(closed_segments, alfa, manual_weights or {})
+        
+        # Usiamo undirected per semplicità (strade bidirezionali)
+        """if not isinstance(G, nx.Graph):
+            G = G.to_undirected()"""
+        
+        # components = list(nx.strongly_connected_components(G))
+
+        return {"code":200, "res":nx.number_strongly_connected_components(G)}
     
-    def remove_edges(self, G: nx.Graph, edges_ids: List[str]):
+    def remove_edges(self, G: nx.DiGraph, edges: List[Tuple[str, str]]):
         try:
-            is_multi = G.is_multigraph()
-            for eid in edges_ids:
-                edges_to_remove = []
-                
-                # 🔥 FIX
-                edges_iterator = G.edges(data=True, keys=True) if is_multi else G.edges(data=True)
-                
-                for edge in edges_iterator:
-                    if str(edge[-1].get("edge_id")) == str(eid):
-                        edges_to_remove.append(edge)
-                
-                for edge in edges_to_remove:
-                    if is_multi:
-                        G.remove_edge(edge[0], edge[1], key=edge[2])
-                    else:
-                        G.remove_edge(edge[0], edge[1])
-            return {"code": 200, "res": "true"}
+            for e in edges:
+                G.remove_edge(e[0], e[1])
+            return {"code":200, "res":"true"}
+        
+        except nx.NetworkXError as nxe:
+            return {"code": 400, "res":f"Error: invalid edges: {nxe}"}
         except Exception as e:
-            return {"code": 500, "res": f"Error: {e}"}
+            return {"code": 500, "res":f"Error: generic exception: {e}"}
 
-    def add_edges(self, G: nx.Graph, edges_ids: List[str]):
+    def add_edges(self, G: nx.DiGraph, edges: List[Tuple[str, str]]):
         try:
-            is_multi = self.base_graph.is_multigraph()
-            for eid in edges_ids:
-                
-                # 🔥 FIX
-                edges_iterator = self.base_graph.edges(data=True, keys=True) if is_multi else self.base_graph.edges(data=True)
-                
-                for edge in edges_iterator:
-                    if str(edge[-1].get("edge_id")) == str(eid):
-                        if is_multi:
-                            G.add_edge(edge[0], edge[1], key=edge[2], **edge[-1])
-                        else:
-                            G.add_edge(edge[0], edge[1], **edge[-1])
-                        break
-            return {"code": 200, "res": "true"}
+            G.add_edges_from(edges)
+            return {"code":200, "res":"true"}
+        
         except Exception as e:
-            return {"code": 500, "res": f"Error: {e}"}
+            return {"code": 500, "res":f"Error: generic exception: {e}"}
 
-    def get_edge_data(self, G: nx.Graph, edge_id: str):
+    def get_edge_data(self, G: nx.DiGraph, edge: Tuple[str, str]):
         try:
-            res = "None"
-            is_multi = G.is_multigraph()
-            
-            # 🔥 FIX
-            edges_iterator = G.edges(data=True, keys=True) if is_multi else G.edges(data=True)
-            
-            for edge in edges_iterator:
-                if str(edge[-1].get("edge_id")) == str(edge_id):
-                    res = edge[-1]
-                    break
-            return {"code": 200, "res": res}
+            res = G.get_edge_data(edge[0], edge[1])
+            if not res:
+                res = "None"
+
+            return {"code":200, "res":res}
+        
         except Exception as e:
-            return {"code": 500, "res": f"Error: {e}"}
+            return {"code": 500, "res":f"Error: generic exception: {e}"}
+        
+"""ge = GraphEngine()
+print(ge.base_graph)
+
+res = ge.compute_dijkstra(ge.base_graph, "664581.81 5101530.0", "664578.66 5101506.33")
+nccs = ge.compute_scc(ge.base_graph)
+
+print(ge.get_edge_data(ge.base_graph, ("664552.81 5104142.0", "664561.56 5104103.5")))
+# print(res, nccs)"""

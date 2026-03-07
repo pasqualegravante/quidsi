@@ -1,39 +1,49 @@
 const router            = require("express").Router();
+const {retrieveHtmlForm}= require("../middlewares");
 const bcrypt            = require("bcrypt");
 const htmlsanitizer     = require("sanitize-html");
 const jwt               = require("jsonwebtoken");
 const {Users, Accesses} = require("../mongo-schemas");
 
-router.post("/", async (req,res)=>{ // 🔥 Rimosso retrieveHtmlForm
-    try {
-        // 🔥 Leggiamo dal body JSON inviato da Vue
-        const email = htmlsanitizer(req.body.email || "");
-        const password = req.body.password || "";
+router.get("/", (req, res)=>{
+    res.send("login page");
+});
 
+router.post("/", retrieveHtmlForm,
+    async (req,res)=>{
+        const email = htmlsanitizer(res.locals.fields.email[0]);
+        const password = res.locals.fields.password[0];
+        
         const user = await Users.findOne({email:email}).exec();
-        if(!user) return res.status(401).send("Utente non trovato.");
+        if(!user){
+            return res.status(401).send(`Client error: User '${email}' doesn't exist. Try to register.`);
+        }
         
         const is_correct_password = await bcrypt.compare(password, user.password);
-        if(!is_correct_password) return res.status(401).send("Password errata.");
+        if(!is_correct_password){
+            return res.status(401).send(`Client error: Password incorrect.`);
+        }
 
         const token = jwt.sign(
-            { sub: user._id, iat: Date.now(), exp: Date.now() + 3600000 },
-            process.env.JWT_SECRET || "segreto",
-            { algorithm: 'HS256' }
+            {
+                sub: user._id,
+                iat:Date.now(),
+                exp:Date.now()+parseInt(process.env.COOKIE_TTL)
+            },
+            process.env.JWT_SECRET,
+            {
+                algorithm:process.env.JWT_ALG
+            }
         );
-        
-        await Accesses.findOneAndUpdate({user_id:user._id}, {token:token, access_date:Date.now(), ipaddr:req.ip}, {new:true, upsert:true}).exec();
-        
-        res.cookie("session_id", token, {httpOnly:true, maxAge: 3600000});
-        
-        // 🔥 Mandiamo il JSON al frontend
-        res.json({
-            token: token,
-            user: { id: user._id, email: user.email, name: user.name }
-        });
-    } catch (error) {
-        res.status(500).send("Errore server.");
-    }
+        console.log(token);
+        try {
+            await Accesses.findOneAndUpdate({user_id:user._id}, {token:token, access_date:Date.now(), ipaddr:req.ip}, {new:true, upsert:true}).exec();
+            //console.log(process.env.COOKIE_TTL);
+            res.cookie("session_id", token, {httpOnly:true, maxAge:parseInt(process.env.COOKIE_TTL)}).send("Login successful.");
+        } catch (error) {
+            console.log(`Error during login;\n${error}`);
+            res.status(500).send("Server error: login failed.");
+        }
 });
 
 module.exports=router;

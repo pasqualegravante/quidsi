@@ -63,10 +63,10 @@ class ScenarioCache:
         self,
         uid: str,
         scen_id: str,
-        graph: nx.Graph,
-        closed_segments: list,
-        alfa: float,
-        manual_weights: dict
+        graph: nx.Graph = None,
+        closed_segments: list = [],
+        alfa: float = 0.5,
+        manual_weights: dict = {}
     ) -> bool:
         key = self._key(uid, scen_id)
         state = {
