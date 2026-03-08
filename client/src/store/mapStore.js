@@ -5,7 +5,6 @@ import { EdgeService } from '../services/edgeService';
 import { RoutingService } from '../services/routingService'; 
 import { useScenarioStore } from './scenarioStore';
 
-// 🔥 CONTROLLO ROBUSTO: cast a Number e tolleranza di mezzo metro per gli arrotondamenti float tra JS e Python
 const isSameNode = (nodeA, nodeB) => {
   if (!nodeA || !nodeB || !Array.isArray(nodeA) || !Array.isArray(nodeB)) return false;
   return Math.abs(Number(nodeA[0]) - Number(nodeB[0])) < 0.5 && 
@@ -68,7 +67,6 @@ export const useMapStore = defineStore('map', {
       this.routingEndPoint = null;
     },
 
-    // 🔄 TRADUTTORE BLINDATO: Da Coordinate Server a ID Leaflet
     _findEdgeIdByNodes(serverEdge) {
       if (!serverEdge || serverEdge.length < 2) return null;
       
@@ -81,7 +79,6 @@ export const useMapStore = defineStore('map', {
         const eN1 = e.nodes[0];
         const eN2 = e.nodes[1];
         
-        // Verifica in senso diretto e inverso
         return (isSameNode(eN1, sN1) && isSameNode(eN2, sN2)) || 
                (isSameNode(eN1, sN2) && isSameNode(eN2, sN1));
       });
@@ -98,12 +95,20 @@ export const useMapStore = defineStore('map', {
       try {
         for (const edge of edgesToToggle) {
           const isClosed = this.activeClosureIds.includes(edge.id);
-          if ((shouldClose && !isClosed) || (!shouldClose && isClosed)) {
-            // Mandiamo le coordinate a Python
-            const res = await EdgeService.toggleEdge(uid, scenId, edge.nodes);
-            if (res) {
+          
+          if (shouldClose && !isClosed) {
+            // Se deve chiudere e non è già chiusa
+            const res = await EdgeService.closeEdge(uid, scenId, edge.nodes);
+            if (res === 'true' || res === true) {
+              this.activeClosureIds.push(edge.id);
+              success = true;
+            }
+          } else if (!shouldClose && isClosed) {
+            // Se deve aprire e attualmente è chiusa
+            const res = await EdgeService.openEdge(uid, scenId, edge.nodes);
+            if (res === 'true' || res === true) {
               const idx = this.activeClosureIds.indexOf(edge.id);
-              idx > -1 ? this.activeClosureIds.splice(idx, 1) : this.activeClosureIds.push(edge.id);
+              if (idx > -1) this.activeClosureIds.splice(idx, 1);
               success = true;
             }
           }
@@ -124,11 +129,25 @@ export const useMapStore = defineStore('map', {
         const edgeData = this.allEdges.find(e => String(e.id) === String(edgeId));
         if (!edgeData || !edgeData.nodes) throw new Error("Dati topologici mancanti");
 
-        const res = await EdgeService.toggleEdge(uid, scenId, edgeData.nodes);
+        const isClosed = this.activeClosureIds.includes(edgeId);
+        let res;
 
-        if (res) {
-          const idx = this.activeClosureIds.indexOf(edgeId);
-          idx > -1 ? this.activeClosureIds.splice(idx, 1) : this.activeClosureIds.push(edgeId);
+        if (isClosed) {
+          // L'arco è chiuso, vogliamo aprirlo
+          res = await EdgeService.openEdge(uid, scenId, edgeData.nodes);
+        } else {
+          // L'arco è aperto, vogliamo chiuderlo
+          res = await EdgeService.closeEdge(uid, scenId, edgeData.nodes);
+        }
+
+        // Il backend Python restituisce la stringa "true" (o il booleano true)
+        if (res === 'true' || res === true) {
+          if (isClosed) {
+            const idx = this.activeClosureIds.indexOf(edgeId);
+            if (idx > -1) this.activeClosureIds.splice(idx, 1);
+          } else {
+            this.activeClosureIds.push(edgeId);
+          }
           return true;
         } else {
           throw new Error("Errore API su toggleEdge");
@@ -146,6 +165,12 @@ export const useMapStore = defineStore('map', {
       const ui = useUiStore();
       const auth = useAuthStore();
       const scenario = useScenarioStore();
+      
+      // 🔥 Guardia: evita crash
+      if (!scenario.activeScenario) {
+        ui.showToast("Seleziona uno scenario prima di calcolare.", "warning");
+        return;
+      }
       if (!this.routingStartPoint || !this.routingEndPoint) return;
       
       ui.setCalculating(true, "Calcolo del percorso ottimale (Dijkstra)...");
@@ -155,9 +180,10 @@ export const useMapStore = defineStore('map', {
           endPoint: this.routingEndPoint, 
           alfa: this.alfa 
         };
-        const res = await RoutingService.calculateDijkstra(auth.uid, scenario.activeScenario.id, payload);
+        // Estraiamo il vero _id
+        const real_id = scenario.activeScenario._id || scenario.activeScenario.id;
+        const res = await RoutingService.calculateDijkstra(auth.uid, real_id, payload);
         
-        // 🔥 PYTHON BYPASS: Il server restituisce un array di nodi ["N1", "N2", "N3"]. Li assembliamo in archi.
         if (res && res.res && Array.isArray(res.res)) {
           const nodesStr = res.res;
           const pathIds = [];
@@ -183,9 +209,17 @@ export const useMapStore = defineStore('map', {
       const auth = useAuthStore();
       const scenario = useScenarioStore();
       
+      // 🔥 Guardia
+      if (!scenario.activeScenario) {
+        ui.showToast("Seleziona uno scenario prima di calcolare.", "warning");
+        return;
+      }
+      
       ui.setCalculating(true, "Calcolo componenti connesse...");
       try {
-        const res = await RoutingService.calculateConnectedComponents(auth.uid, scenario.activeScenario.id);
+        // Estraiamo il vero _id
+        const real_id = scenario.activeScenario._id || scenario.activeScenario.id;
+        const res = await RoutingService.calculateConnectedComponents(auth.uid, real_id);
         
         if (res && res.CCS && Array.isArray(res.CCS)) {
           this.connectedComponents = res.CCS.map(ccGroup => {
@@ -194,7 +228,6 @@ export const useMapStore = defineStore('map', {
                      .filter(id => id !== null);
           });
         } else {
-          // Prevenzione crash se il backend Python restituisce solo il numero nx.number_strongly_connected_components(G)
           ui.showToast(`Calcolo terminato: Trovate ${res.res || 0} componenti connesse.`, "info");
           this.connectedComponents = [];
         }

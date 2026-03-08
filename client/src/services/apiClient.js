@@ -1,7 +1,7 @@
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''; // Usa path relativo o variabile d'ambiente
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || ''; 
 
 export const apiClient = {
   async request(endpoint, options = {}) {
@@ -13,14 +13,10 @@ export const apiClient = {
       ...options.headers,
     };
 
-    // RIMOSSA l'iniezione del Bearer token. 
-    // Il browser gestirà il token JWT tramite Cookie HttpOnly automaticamente
-    // grazie a credentials: 'include'.
-
     const config = {
       ...options,
       headers,
-      credentials: 'include', // Fondamentale per inviare i Cookie HttpOnly al server
+      credentials: 'include', 
     };
 
     try {
@@ -28,22 +24,35 @@ export const apiClient = {
 
       if (response.status === 401) {
         console.warn("Sessione scaduta o non autorizzata. Esecuzione logout forzato.");
-        authStore.logout(); 
-        uiStore.showToast("La tua sessione è scaduta. Effettua di nuovo l'accesso.", "error");
+        //authStore.logout(); 
+        //uiStore.showToast("La tua sessione è scaduta. Effettua di nuovo l'accesso.", "error");
         throw new Error("Unauthorized 401");
       }
 
+      // 🔥 FIX 1: Gestione robusta degli errori (anche se il server manda testo normale)
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Errore HTTP: ${response.status}`);
+        const errorText = await response.text();
+        let errorMessage = `Errore HTTP: ${response.status}`;
+        try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.message || errorMessage;
+        } catch (e) {
+            errorMessage = errorText || errorMessage; // Usa il testo grezzo se non è JSON
+        }
+        throw new Error(errorMessage);
       }
 
-      // Gestione del NoContent
       if (response.status === 204) return null;
       
-      // Il login restituisce body vuoto secondo le specifiche, gestiamolo
       const text = await response.text();
-      return text ? JSON.parse(text) : {};
+      if (!text) return {};
+
+      // 🔥 FIX 2: Previene il SyntaxError fatale su res.send("testo semplice")
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return { message: text }; // Lo impacchettiamo in un oggetto innocuo
+      }
 
     } catch (error) {
       console.error(`[API Client Error] su ${endpoint}:`, error.message);
@@ -55,15 +64,12 @@ export const apiClient = {
     return this.request(endpoint, { ...options, method: 'GET' });
   },
   post(endpoint, data, options = {}) {
-    // Se data è undefined, passa un body vuoto per evitare errori di parsing sul server
     return this.request(endpoint, { ...options, method: 'POST', body: JSON.stringify(data || {}) });
   },
   put(endpoint, data, options = {}) {
     return this.request(endpoint, { ...options, method: 'PUT', body: JSON.stringify(data || {}) });
   },
   delete(endpoint, data, options = {}) {
-    // Aggiunto data anche per la delete, in quanto alcune api (es /scenario/delete)
-    // richiedono il payload nel body.
     return this.request(endpoint, { ...options, method: 'DELETE', body: JSON.stringify(data || {}) });
   }
 };

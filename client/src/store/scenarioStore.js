@@ -17,9 +17,14 @@ export const useScenarioStore = defineStore('scenario', {
     async fetchAllScenarios(uid) {
       try {
         const res = await ScenarioService.getAllScenarios(uid);
-        if (res && res.scenarios) {
-          this.scenarios = res.scenarios;
-        }
+        const datiReali = res.data || res;
+        const list = Array.isArray(datiReali) ? datiReali : (datiReali.scenarios || []);
+        
+        // 🔥 FIX FRONTEND: Creiamo un alias 'id' per mantenere compatibili i template Vue
+        this.scenarios = list.map(s => ({
+          ...s,
+          id: s._id || s.id 
+        }));
       } catch (error) {
         console.error("Errore nel recupero degli scenari:", error);
       }
@@ -34,8 +39,11 @@ export const useScenarioStore = defineStore('scenario', {
       ui.setCalculating(true, "Creazione nuovo scenario...");
       try {
         const res = await ScenarioService.createScenario(auth.uid);
-        if (res && res.scen) {
-          this.activeScenario = res.scen;
+        const newScen = res.data || res.scen || res;
+        
+        if (newScen && (newScen._id || newScen.id)) {
+          newScen.id = newScen._id || newScen.id; // Alias per Vue
+          this.activeScenario = newScen;
           
           // 🔥 FONDAMENTALE: Resetta la mappa (chiusure, percorsi, ecc.) per il nuovo scenario
           map.activeClosureIds = [];
@@ -56,9 +64,9 @@ export const useScenarioStore = defineStore('scenario', {
 
     // 3. SELEZIONE SCENARIO (con controllo modifiche non salvate)
     async selectScenario(scen_id) {
-      const isDifferent = this.activeScenario && String(this.activeScenario.id) !== String(scen_id);
+      // Usiamo l'operatore logico per supportare sia id che _id dal template Vue
+      const isDifferent = this.activeScenario && String(this.activeScenario._id || this.activeScenario.id) !== String(scen_id);
       
-      // Se l'utente ha modifiche pendenti, apriamo il modal di avviso
       if (this.isModified && isDifferent) {
         this.pendingAction = { type: 'select', targetId: scen_id };
         const ui = useUiStore();
@@ -79,26 +87,35 @@ export const useScenarioStore = defineStore('scenario', {
       ui.setCalculating(true, "Caricamento scenario...");
 
       try {
-        const res = await ScenarioService.selectScenario(auth.uid, scen_id);
+        // Troviamo lo scenario locale e prendiamo il suo _id reale per il backend
+        const target = this.scenarios.find(s => String(s._id || s.id) === String(scen_id));
+        if (!target) throw new Error("Scenario non trovato in memoria locale");
+
+        const real_id = target._id || target.id;
+        const res = await ScenarioService.selectScenario(auth.uid, real_id);
         
-        if (res && res.scenario) {
-          this.activeScenario = res.scenario;
-          
-          // 🔥 MAGIA DI TRADUZIONE: Dal DB (Coordinate UTM) -> Alla RAM di Vue (ID Leaflet)
-          if (res.scenario.closed_segments && Array.isArray(res.scenario.closed_segments)) {
-            map.activeClosureIds = res.scenario.closed_segments
-              .map(serverEdge => map._findEdgeIdByNodes(serverEdge))
-              .filter(id => id !== null); // Scarta eventuali errori topologici o discrepanze
-          } else {
-            map.activeClosureIds = [];
-          }
-
-          // Resetta calcoli precedenti rimasti a schermo
-          map.dijkstraPath = [];
-          map.connectedComponents = [];
-
-          ui.showToast("Scenario caricato correttamente.", "success");
+        // Assegna lo scenario locale come attivo (così abbiamo subito i dati per la UI)
+        this.activeScenario = target;
+        
+        const serverData = res.scenario || res.data || res;
+        
+        // 🔥 MAGIA DI TRADUZIONE: Dal DB (Coordinate UTM) -> Alla RAM di Vue (ID Leaflet)
+        if (serverData && serverData.closed_segments && Array.isArray(serverData.closed_segments)) {
+          map.activeClosureIds = serverData.closed_segments
+            .map(serverEdge => map._findEdgeIdByNodes(serverEdge))
+            .filter(id => id !== null);
+        } else if (target.closed_segments && Array.isArray(target.closed_segments)) {
+          map.activeClosureIds = target.closed_segments
+            .map(serverEdge => map._findEdgeIdByNodes(serverEdge))
+            .filter(id => id !== null);
+        } else {
+          map.activeClosureIds = [];
         }
+
+        map.dijkstraPath = [];
+        map.connectedComponents = [];
+
+        ui.showToast("Scenario caricato correttamente.", "success");
       } catch (error) {
         console.error("Errore nel caricamento dello scenario:", error);
         ui.showToast("Errore nel caricamento dello scenario.", "error");
@@ -116,8 +133,11 @@ export const useScenarioStore = defineStore('scenario', {
 
       ui.setCalculating(true, "Salvataggio in corso...");
       try {
-        const res = await ScenarioService.saveScenario(auth.uid, this.activeScenario.id);
-        if (res && res.saved) {
+        // 🔥 Inviamo sempre _id al backend!
+        const real_id = this.activeScenario._id || this.activeScenario.id;
+        const res = await ScenarioService.saveScenario(auth.uid, real_id);
+        
+        if (res && res.saved !== false) { // Gestione blanda del bool
           this.isModified = false;
           ui.showToast("Scenario salvato con successo!", "success");
         } else {
@@ -147,8 +167,11 @@ export const useScenarioStore = defineStore('scenario', {
       const ui = useUiStore();
       ui.setCalculating(true, "Duplicazione in corso...");
       try {
-        // Attenzione: come da D2, qui il payload passa "scenario", non "scen_id"
-        const res = await ScenarioService.duplicateScenario(auth.uid, scen_id);
+        // Troviamo il VERO _id da inviare
+        const target = this.scenarios.find(s => String(s._id || s.id) === String(scen_id));
+        const real_id = target ? (target._id || target.id) : scen_id;
+
+        const res = await ScenarioService.duplicateScenario(auth.uid, real_id);
         if (res && res.scen) {
           await this.fetchAllScenarios(auth.uid);
           ui.showToast("Pratica duplicata con successo!", "success");
@@ -166,7 +189,7 @@ export const useScenarioStore = defineStore('scenario', {
       if (!this.activeScenario || this.activeScenario.label === newLabel) return; 
       
       this.activeScenario = { ...this.activeScenario, label: newLabel };
-      const index = this.scenarios.findIndex(s => String(s.id) === String(this.activeScenario.id));
+      const index = this.scenarios.findIndex(s => String(s._id || s.id) === String(this.activeScenario._id || this.activeScenario.id));
       if (index !== -1) {
         this.scenarios[index].label = newLabel;
       }
@@ -181,11 +204,14 @@ export const useScenarioStore = defineStore('scenario', {
       
       ui.setCalculating(true, "Eliminazione scenario...");
       try {
-        const res = await ScenarioService.deleteScenario(auth.uid, scen_id);
-        if (res && res.deleted) {
+        // Troviamo il VERO _id
+        const target = this.scenarios.find(s => String(s._id || s.id) === String(scen_id));
+        const real_id = target ? (target._id || target.id) : scen_id;
+
+        const res = await ScenarioService.deleteScenario(auth.uid, real_id);
+        if (res && res.deleted !== false) {
           
-          // Se stiamo eliminando lo scenario che stiamo attualmente visualizzando, svuotiamo la mappa
-          if (this.activeScenario && String(this.activeScenario.id) === String(scen_id)) {
+          if (this.activeScenario && String(this.activeScenario._id || this.activeScenario.id) === String(real_id)) {
             this.activeScenario = null;
             map.activeClosureIds = [];
             map.dijkstraPath = [];
@@ -204,7 +230,7 @@ export const useScenarioStore = defineStore('scenario', {
       }
     },
 
-    // 9. RISOLUZIONE AZIONI IN SOSPESO (dopo il popup di salvataggio)
+    // 9. RISOLUZIONE AZIONI IN SOSPESO
     async resolvePendingAction() {
       if (!this.pendingAction) return;
       const { type, targetId } = this.pendingAction;
@@ -216,6 +242,40 @@ export const useScenarioStore = defineStore('scenario', {
       }
       
       this.pendingAction = null;
+    },
+    // AGGIORNAMENTO INFORMAZIONI (Label e Descrizione)
+    async updateScenarioInfo(scen_id, payload) {
+      const auth = useAuthStore();
+      const ui = useUiStore();
+      
+      try {
+        ui.setCalculating(true, "Aggiornamento in corso...");
+        
+        // 1. Troviamo il VERO _id da mandare al backend
+        const target = this.scenarios.find(s => String(s._id || s.id) === String(scen_id));
+        const real_id = target ? (target._id || target.id) : scen_id;
+
+        // 2. Chiamata al backend
+        const res = await ScenarioService.updateScenario(auth.uid, real_id, payload);
+        
+        if (res) {
+          // 3. Aggiorniamo la memoria locale per aggiornare la UI all'istante
+          if (target) {
+            if (payload.label) target.label = payload.label;
+            if (payload.description) target.description = payload.description;
+          }
+          if (this.activeScenario && String(this.activeScenario._id || this.activeScenario.id) === String(real_id)) {
+            if (payload.label) this.activeScenario.label = payload.label;
+            if (payload.description) this.activeScenario.description = payload.description;
+          }
+          ui.showToast("Informazioni aggiornate!", "success");
+        }
+      } catch (error) {
+        console.error("Errore aggiornamento info:", error);
+        ui.showToast("Errore nell'aggiornamento dello scenario.", "error");
+      } finally {
+        ui.setCalculating(false);
+      }
     }
   }
 });

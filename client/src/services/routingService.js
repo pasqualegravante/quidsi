@@ -13,17 +13,20 @@ export const RoutingService = {
       throw new Error("Punto invalido");
     };
 
+    // 🔥 FIX: Allineato a dijkstra_req (aggiunto alfa che veniva ignorato!)
     const requestBody = {
       user_id: userId,
       _id: scenId,
       source: formatNode(getExactNode(payload.startPoint)),
-      target: formatNode(getExactNode(payload.endPoint))
+      target: formatNode(getExactNode(payload.endPoint)),
+      alfa: payload.alfa // Ora il motore Python userà il peso corretto
     };
 
     return await apiClient.post('/engine/compute/dijkstra', requestBody);
   },
 
   async calculateConnectedComponents(userId, scenId) {
+    // Allineato a scenario_req base
     return await apiClient.post('/engine/compute/cc', { user_id: userId, _id: scenId });
   }
 };

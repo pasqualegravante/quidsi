@@ -18,10 +18,10 @@ def get_scenario_graph(
     """
     g: nx.Graph = None
 
-    scen = CACHE.get(sreq.user_id, sreq._id)
+    scen = CACHE.get(sreq.user_id, sreq.id)
     if(scen):
         g=scen["graph"]
-        CACHE.update(sreq.user_id, sreq._id, {"last_access": time.time()})
+        CACHE.update(sreq.user_id, sreq.id, {"last_access": time.time()})
 
     else:
         g=GE.build_scenario_graph(
@@ -29,7 +29,7 @@ def get_scenario_graph(
             alfa=sreq.alfa,
             manual_weights=sreq.manual_weights or []
         )
-        CACHE.put(sreq.user_id, sreq._id, g, sreq.closed_segments, sreq.alfa, sreq.manual_weights)
+        CACHE.put(sreq.user_id, sreq.id, g, sreq.closed_segments, sreq.alfa, sreq.manual_weights)
     return g
 
 GraphDep = Annotated[nx.DiGraph, Depends(get_scenario_graph)]

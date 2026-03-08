@@ -32,18 +32,31 @@ router.post("/", retrieveHtmlForm,
             },
             process.env.JWT_SECRET,
             {
-                algorithm:process.env.JWT_ALG
+                algorithm:process.env.JWT_ALG || "HS256"
             }
         );
         console.log(token);
         try {
-            await Accesses.findOneAndUpdate({user_id:user._id}, {token:token, access_date:Date.now(), ipaddr:req.ip}, {new:true, upsert:true}).exec();
-            //console.log(process.env.COOKIE_TTL);
-            res.cookie("session_id", token, {httpOnly:true, maxAge:parseInt(process.env.COOKIE_TTL)}).send("Login successful.");
+            await Accesses.findOneAndUpdate(
+                {user_id: user._id}, 
+                {token: token, access_date: Date.now(), ipaddr: req.ip}, 
+                {new: true, upsert: true}
+            ).exec();
+            
+            // 🔥 FIX 1: Diamo un tempo di vita (TTL) di default di 24 ore se l'env fallisce
+            const cookieTTL = parseInt(process.env.COOKIE_TTL) || 86400000; 
+            
+            // 🔥 FIX 2: Impostazioni "Lax" e "Path" per far digerire il cookie a Opera su Localhost
+            res.cookie("session_id", token, {
+                httpOnly: true, 
+                maxAge: cookieTTL,
+                path: '/',          // Il cookie vale per tutte le rotte!
+                sameSite: 'Lax'     // Permette il cross-origin su localhost in HTTP
+            }).send("Login successful.");
+
         } catch (error) {
             console.log(`Error during login;\n${error}`);
             res.status(500).send("Server error: login failed.");
         }
-});
-
+    });
 module.exports=router;

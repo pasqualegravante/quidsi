@@ -89,21 +89,41 @@ class GraphEngine:
     def remove_edges(self, G: nx.DiGraph, edges: List[Tuple[str, str]]):
         try:
             for e in edges:
-                G.remove_edge(e[0], e[1])
-            return {"code":200, "res":"true"}
-        
-        except nx.NetworkXError as nxe:
-            return {"code": 400, "res":f"Error: invalid edges: {nxe}"}
+                u, v = e[0], e[1]
+                # Controlla se esiste nella direzione u->v
+                if G.has_edge(u, v):
+                    keys = list(G[u][v].keys()) if G.is_multigraph() else [None]
+                    for k in keys:
+                        G.remove_edge(u, v, key=k) if k is not None else G.remove_edge(u, v)
+                # Altrimenti controlla la direzione opposta v->u
+                elif G.has_edge(v, u):
+                    keys = list(G[v][u].keys()) if G.is_multigraph() else [None]
+                    for k in keys:
+                        G.remove_edge(v, u, key=k) if k is not None else G.remove_edge(v, u)
+            return {"code": 200, "res": "true"}
         except Exception as e:
-            return {"code": 500, "res":f"Error: generic exception: {e}"}
+            return {"code": 500, "res": f"Error: generic exception: {e}"}
 
     def add_edges(self, G: nx.DiGraph, edges: List[Tuple[str, str]]):
         try:
-            G.add_edges_from(edges)
-            return {"code":200, "res":"true"}
-        
+            for e in edges:
+                u, v = e[0], e[1]
+                # Aggiungiamo solo se non c'è già
+                if not G.has_edge(u, v) and not G.has_edge(v, u):
+                    # 🔥 FONDAMENTALE: Copiamo pesi e attributi originali dal base_graph!
+                    if self.base_graph.has_edge(u, v):
+                        edge_data = self.base_graph.get_edge_data(u, v)
+                        for k, data in edge_data.items():
+                            G.add_edge(u, v, key=k, **data)
+                    elif self.base_graph.has_edge(v, u):
+                        edge_data = self.base_graph.get_edge_data(v, u)
+                        for k, data in edge_data.items():
+                            G.add_edge(v, u, key=k, **data)
+                    else:
+                        G.add_edge(u, v) # Fallback se non trovato
+            return {"code": 200, "res": "true"}
         except Exception as e:
-            return {"code": 500, "res":f"Error: generic exception: {e}"}
+            return {"code": 500, "res": f"Error: generic exception: {e}"}
 
     def get_edge_data(self, G: nx.DiGraph, edge: Tuple[str, str]):
         try:

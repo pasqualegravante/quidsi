@@ -5,7 +5,7 @@ import networkx as nx
 __all__ = ['csv_to_nx']
 
 # scrivere il path in modo migliore(va bene scriverlo come percorso relativo? Intanto funziona.)
-def csv_to_nx(csv_path="../../grafo_web.csv"):
+def csv_to_nx(csv_path="grafo_web.csv"):
 
     graph = nx.digraph.DiGraph()
     
@@ -19,7 +19,7 @@ def csv_to_nx(csv_path="../../grafo_web.csv"):
                                for k, v in riga.items()}
                 
                 #tutte le coppie di punti che definiscono la strada in questione
-                wkt_linestring = (riga_pulita.get("WKT")[12:-1]).split(",")
+                wkt_linestring = (riga_pulita.get("wkb_geometry")[12:-1]).split(",")
 
                 #ogni coppia di punti è un lato del grafo
                 for idx in range (0, len(wkt_linestring)):

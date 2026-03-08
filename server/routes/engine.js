@@ -2,25 +2,25 @@ const router                    = require("express").Router();
 const router_scenario           = require("./scenario");
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
+// 🔥 FIX: Definiamo l'URL dinamico corretto per raggiungere il container Python in Docker
+const getPythonUrl = () => process.env.PYTHON_URL || process.env.PYBACKEND || "http://engine:8000";
+
 router.use("/scenario", router_scenario);
 
 router.use(["/compute/*", "/edge/*"],
     createProxyMiddleware({
-    target: 'http://127.0.0.1:8000',  // L'indirizzo del servizio target
-    pathRewrite: (path, req) => req.originalUrl.replace('/engine', ''),   // Rimuove il prefisso /engine dalla richiesta inoltrata (opzionale, dipende dal target)
-    changeOrigin: true,               // Cambia l'header Origin per far credere al target che la richiesta provenga dal suo host
+    target: getPythonUrl(),  // 🔥 FIX: Usiamo l'indirizzo dinamico invece di 127.0.0.1
+    pathRewrite: (path, req) => req.originalUrl.replace('/engine', ''),   
+    changeOrigin: true,               
     
     on:{
     proxyReq: (proxyReq, req, res) => {
         console.log(req.url)
-        // Modifica il body: usa UID dal token (req.user.uid)
+        
         let body = req.body || {};
-        //console.log(body)
-        //console.log(res.locals.user)
 
-        body.user_id = res.locals.user._id; // Sovrascrivi o inserisci UID verificato
+        body.user_id = res.locals.user._id;
         const bodyContent = JSON.stringify(body);
-        //console.log(bodyContent);
 
         proxyReq.setHeader('Content-Type', 'application/json');
         proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyContent));
@@ -30,4 +30,4 @@ router.use(["/compute/*", "/edge/*"],
     }
 ));
 
-module.exports=router
+module.exports=router;

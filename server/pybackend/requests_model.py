@@ -1,8 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Tuple
 
 class scenario_req(BaseModel):
-    _id: str
+    id: str = Field(alias="_id") 
     user_id: str
     closed_segments: Optional[List[Tuple[str, str]]] = []
     alfa: Optional[float] = 0.5

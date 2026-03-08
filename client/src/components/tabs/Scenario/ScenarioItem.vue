@@ -54,7 +54,11 @@ export default {
     cancelEdit() { this.isEditing = false; },
     confirmSave() {
       if (this.tempLabel.trim()) {
-        this.$emit('save-info', { id: this.scen.id, label: this.tempLabel, desc: this.tempDesc });
+        this.$emit('save-info', { 
+          id: this.scen._id || this.scen.id, 
+          label: this.tempLabel, 
+          description: this.tempDesc 
+        });
       }
       this.isEditing = false;
     }
