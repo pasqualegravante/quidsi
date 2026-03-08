@@ -1,27 +1,29 @@
 import { apiClient } from './apiClient';
 
+const formatNode = (coords) => {
+  const x = Number.isInteger(coords[0]) ? coords[0].toFixed(1) : String(coords[0]);
+  const y = Number.isInteger(coords[1]) ? coords[1].toFixed(1) : String(coords[1]);
+  return `${x} ${y}`;
+};
+
 export const RoutingService = {
-  
-  async calculateDijkstra(uid, scen_id, payload) {
-    // Peschiamo il nodo UTM esatto dell'arco selezionato per evitare "NodeNotFound" in NetworkX
+  async calculateDijkstra(userId, scenId, payload) {
     const getExactNode = (pointData) => {
-      if (pointData && pointData.nodes && pointData.nodes.length > 0) {
-        return pointData.nodes[0]; // Ritorna l'array [x, y] in UTM
-      }
-      throw new Error("Punto di routing invalido (nodi mancanti)");
+      if (pointData && pointData.nodes && pointData.nodes.length > 0) return pointData.nodes[0];
+      throw new Error("Punto invalido");
     };
 
     const requestBody = {
-      uid: uid,
-      scen_id: scen_id,
-      source: getExactNode(payload.startPoint), // Invia un array [x, y]
-      target: getExactNode(payload.endPoint)    // Invia un array [x, y]
+      user_id: userId,
+      _id: scenId,
+      source: formatNode(getExactNode(payload.startPoint)),
+      target: formatNode(getExactNode(payload.endPoint))
     };
 
-    return await apiClient.post('/scenario/djk', requestBody);
+    return await apiClient.post('/engine/compute/dijkstra', requestBody);
   },
 
-  async calculateConnectedComponents(uid, scen_id) {
-    return await apiClient.post('/scenario/cc', { uid, scen_id });
+  async calculateConnectedComponents(userId, scenId) {
+    return await apiClient.post('/engine/compute/cc', { user_id: userId, _id: scenId });
   }
 };

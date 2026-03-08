@@ -1,46 +1,27 @@
 import { apiClient } from './apiClient';
 
 export const ScenarioService = {
-  
-  // POST /scenario/get-all
-  // Payload: { uid: "..." }
-  async getAllScenarios(uid) {
-    return await apiClient.post('/scenario/get-all', { uid });
+  async getAllScenarios(userId) {
+    return await apiClient.post('/engine/scenario/get-all', { user_id: userId });
   },
-
-  // POST /scenario/select
-  // Payload: { uid: "...", scen_id: "..." }
-  async selectScenario(uid, scen_id) {
-    return await apiClient.post('/scenario/select', { uid, scen_id });
+  async selectScenario(userId, scenarioId) {
+    return await apiClient.post('/engine/scenario/load', { user_id: userId, _id: scenarioId });
   },
-
-  // POST /scenario/save
-  // Payload: { uid: "...", scen_id: "..." }
-  async saveScenario(uid, scen_id) {
-    return await apiClient.post('/scenario/save', { uid, scen_id });
+  async saveScenario(userId, scenarioId) {
+    return await apiClient.post('/engine/scenario/save', { user_id: userId, _id: scenarioId });
   },
-
-  // POST /scenario/new
-  // Payload: { uid: "..." }
-  async createScenario(uid) {
-    return await apiClient.post('/scenario/new', { uid });
+  async createScenario(userId) {
+    // Il documento richiede l'invio di _id come stringa (anche casuale) per la creazione
+    return await apiClient.post('/engine/scenario/new', { user_id: userId, _id: "new_scenario" }); 
   },
-
-  // (Non menzionato esplicitamente nelle specifiche attuali, ma mantengo la struttura per la tua UI)
-  async updateScenario(uid, scen_id, payload) {
-    return await apiClient.post('/scenario/update', { uid, scen_id, ...payload });
+  async updateScenario(userId, scenarioId, payload) {
+    return await apiClient.post('/engine/scenario/update', { user_id: userId, _id: scenarioId, ...payload });
   },
-
-  // POST /scenario/duplicate
-  // Payload: { uid: "...", scenario: "..." }
-  // ATTENZIONE: le specifiche indicano la chiave 'scenario' al posto di 'scen_id' per questo endpoint
-  async duplicateScenario(uid, scenario) {
-    return await apiClient.post('/scenario/duplicate', { uid, scenario });
+  async duplicateScenario(userId, scenarioId) {
+    // Non esplicitamente documentato nell'ultimo D2, ma lo allineiamo
+    return await apiClient.post('/engine/scenario/duplicate', { user_id: userId, _id: scenarioId });
   },
-
-  // DELETE /scenario/delete
-  // Payload: { uid: "...", scen_id: "..." }
-  async deleteScenario(uid, scen_id) {
-    return await apiClient.delete('/scenario/delete', { uid, scen_id });
+  async deleteScenario(userId, scenarioId) {
+    return await apiClient.post('/engine/scenario/delete', { user_id: userId, _id: scenarioId });
   }
 };
