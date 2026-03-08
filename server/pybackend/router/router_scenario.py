@@ -10,7 +10,7 @@ router_scenario = APIRouter(
 
 @router_scenario.post("/is-in-cache")
 async def isincache(sreq: body_model.scenario_req):
-    res = CACHE.get(sreq.uid, sreq.id)
+    res = CACHE.get(sreq.user_id, sreq._id)
 
     return JSONResponse(
         status_code=200,
@@ -19,16 +19,16 @@ async def isincache(sreq: body_model.scenario_req):
 
 @router_scenario.post("/get-from-cache")
 async def getfromcache(sreq: body_model.scenario_req):
-    res = CACHE.get(sreq.uid, sreq.id).copy()
+    res = CACHE.get(sreq.user_id, sreq._id).copy()
     res.pop("graph")
     return JSONResponse(
         status_code=200,
         content=res
     )
 
-@router_scenario.post("/delete-from-cache")
+@router_scenario.delete("/delete-from-cache")
 async def deletefromcache(sreq: body_model.scenario_req):
-    res = CACHE.invalidate(sreq.uid, sreq.id)
+    res = CACHE.invalidate(sreq.user_id, sreq._id)
     return JSONResponse(
         status_code=200,
         content=res
@@ -36,7 +36,7 @@ async def deletefromcache(sreq: body_model.scenario_req):
 
 @router_scenario.post("/load")
 async def load(sreq: body_model.scenario_req, g: GraphDep):
-    res = CACHE.put(sreq.uid, sreq.id, g, sreq.closed_segments, sreq.alfa, sreq.manual_weights)
+    res = CACHE.put(sreq.user_id, sreq._id, g, sreq.closed_segments, sreq.alfa, sreq.manual_weights)
     return JSONResponse(
         status_code=200,
         content=res

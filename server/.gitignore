@@ -3,3 +3,5 @@ node_modules
 .env
 resources
 __pycache__
+regist.js
+home.js
