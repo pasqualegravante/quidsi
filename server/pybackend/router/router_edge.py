@@ -22,8 +22,8 @@ async def info(sreq: body_model.edge_req, g: GraphDep):
 async def delete(sreq: body_model.edge_req, g: GraphDep):
     res = GE.remove_edges(g, sreq.edges)
     if(res["res"]=="true"):
-        oldState = CACHE.get(sreq.uid, sreq.id)
-        CACHE.update(sreq.uid, sreq.id, {
+        oldState = CACHE.get(sreq.user_id, sreq._id)
+        CACHE.update(sreq.user_id, sreq._id, {
             "closed_segments":oldState.get("closed_segments", []) + sreq.edges
         })
 
@@ -36,13 +36,13 @@ async def delete(sreq: body_model.edge_req, g: GraphDep):
 async def add(sreq: body_model.edge_req, g: GraphDep):
     res = GE.add_edges(g, sreq.edges)
     if(res["res"]=="true"):
-        old_closed: List[List[str]] = CACHE.get(sreq.uid, sreq.id).get("closed_segments", [])
+        old_closed: List[List[str]] = CACHE.get(sreq.user_id, sreq._id).get("closed_segments", [])
         
         for seg in sreq.edges:
             if seg in old_closed:
                 old_closed.remove(seg)
         
-        CACHE.update(sreq.uid, sreq.id, {
+        CACHE.update(sreq.user_id, sreq._id, {
             "closed_segments":old_closed
         })
     return JSONResponse(

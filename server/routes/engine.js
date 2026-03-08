@@ -18,7 +18,7 @@ router.use(["/compute/*", "/edge/*"],
         //console.log(body)
         //console.log(res.locals.user)
 
-        body.uid = res.locals.user._id; // Sovrascrivi o inserisci UID verificato
+        body.user_id = res.locals.user._id; // Sovrascrivi o inserisci UID verificato
         const bodyContent = JSON.stringify(body);
         //console.log(bodyContent);
 

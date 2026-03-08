@@ -66,8 +66,9 @@ const scenarioSchema = new mongoose.Schema({
     description: { type: String, default: "(vuoto)" },
     creation_date: { type: Date, default: Date.now() },
     access_date: { type: Date, default: Date.now() },
-    closed_segments: { type: [[String]], default: [] },
-    alfa: { type: mongoose.Types.Double, default: 0.5 }
+    closed_segments: { type: [String], default: [] },
+    alfa: { type: mongoose.Types.Double, default: 0.5 },
+    manual_weights: { type: Map, of:mongoose.Types.Double, default: {} },
 });
 const Scenarios = mongoose.model("Scenario", scenarioSchema);
 module.exports = { Users, Accesses, Scenarios};

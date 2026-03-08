@@ -15,7 +15,7 @@ router.post("/new", async (req, res)=>{
 
 router.post("/update", async (req, res)=>{
     if(req.body.label || req.body.description){
-        result = await Scenarios.updateOne({"user_id":res.locals.user._id, "_id":req.body.id});
+        result = await Scenarios.updateOne({"user_id":res.locals.user._id, "_id":req.body._id});
     }
     
     return res.status(result==null ? 500 : 200).json(result);
@@ -26,16 +26,17 @@ router.post("/load", async (req, res)=>{
         return res.json({res:true});
     }
 
-    resulto = await Scenarios.findOne({"user_id":res.locals.user._id, "_id":req.body.id}).exec();
-    result = resulto;
+    result = await Scenarios.findOne({"user_id":res.locals.user._id, "_id":req.body._id}).exec();
+
     if(result){
         const payload = {
-            id:result._id,
-            uid:result.user_id,
+            _id:result._id,
+            user_id:result.user_id,
             closed_segments:result.closed_segments,
-            alfa:result.alfa
+            alfa:result.alfa,
+            manual_weights:result.manual_weights
         }
-        console.log(payload, typeof(payload.id))
+        console.log(payload, typeof(payload._id))
         /*
         console.log(typeof(result))
         result["id"]=String(result["_id"])
@@ -71,7 +72,7 @@ router.post("/save", async (req, res)=>{
         const pyres = await fetch(`${process.env.PYBACKEND}/scenario/get-from-cache`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({uid:String(res.locals.user._id), id:req.body.id })
+            body: JSON.stringify({user_id:String(res.locals.user._id), _id:req.body._id })
         });
 
         if (!pyres.ok) {
@@ -79,7 +80,7 @@ router.post("/save", async (req, res)=>{
         }
 
         const data = await pyres.json();
-        result = await Scenarios.updateOne({"_id":scen_id, "user_id":res.locals.user._id}, data).exec();
+        result = await Scenarios.updateOne({"_id":req.body._id, "user_id":res.locals.user._id}, data).exec();
 
         return res.status(200).json({res:true});
 
@@ -90,7 +91,7 @@ router.post("/save", async (req, res)=>{
 });
 
 
-router.post("/delete", async (req, res)=>{
+router.delete("/delete", async (req, res)=>{
     //ask pybackend to delete graph
     result=true
     if(res.locals.cacheCheck)
@@ -100,7 +101,7 @@ router.post("/delete", async (req, res)=>{
             const pyres = await fetch(`${process.env.PYBACKEND}/scenario/delete-from-cache`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({uid:String(res.locals.user._id), id:req.body.id })
+                body: JSON.stringify({user_id:String(res.locals.user._id), _id:req.body._id })
             });
 
             if (!pyres.ok) {
@@ -114,7 +115,7 @@ router.post("/delete", async (req, res)=>{
         }
     
     //delete from db
-    result = (await Scenarios.deleteOne({"_id":req.body?.id, "user_id":res.locals.user._id}).exec()).deletedCount==1 && result;
+    result = (await Scenarios.deleteOne({"_id":req.body?._id, "user_id":res.locals.user._id}).exec()).deletedCount==1 && result;
 
     return res.json({res:result});
 });

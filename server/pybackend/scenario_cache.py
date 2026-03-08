@@ -11,25 +11,25 @@ class ScenarioCache:
     ):
         self.max_global = max_global
         self.max_per_user = max_per_user
-        self.cache: OrderedDict[str, dict] = OrderedDict()          # key = "uid:scen_id"
-        self.user_counts: Dict[str, int] = {}                       # uid → conteggio
+        self.cache: OrderedDict[str, dict] = OrderedDict()          # key = "user_id:_id"
+        self.user_counts: Dict[str, int] = {}                       # user_id → conteggio
 
-    def _key(self, uid: str, scen_id: str) -> str:
-        return f"{uid}:{scen_id}"
+    def _key(self, user_id: str, _id: str) -> str:
+        return f"{user_id}:{_id}"
 
-    def _get_user_scenarios(self, uid: str) -> List[Tuple[str, dict]]:
+    def _get_user_scenarios(self, user_id: str) -> List[Tuple[str, dict]]:
         """Ritorna lista di (key, state) per quell'utente, ordinata per last_access crescente (più vecchi prima)"""
         user_items = [
             (k, v) for k, v in self.cache.items()
-            if k.startswith(f"{uid}:")
+            if k.startswith(f"{user_id}:")
         ]
         # Ordina per last_access ASC → i più vecchi prima
         user_items.sort(key=lambda x: x[1]["last_access"])
         return user_items
 
-    def _evict_half_for_user(self, uid: str):
+    def _evict_half_for_user(self, user_id: str):
         """Elimina il 50% degli scenari più vecchi per questo utente"""
-        user_scenarios = self._get_user_scenarios(uid)
+        user_scenarios = self._get_user_scenarios(user_id)
         if not user_scenarios:
             return
 
@@ -47,12 +47,12 @@ class ScenarioCache:
             del self.cache[key]
 
         # Aggiorna contatore
-        self.user_counts[uid] = max(0, count - to_remove_count)
+        self.user_counts[user_id] = max(0, count - to_remove_count)
 
-        print(f"[Cache] Evicted {to_remove_count} old scenarios for user {uid}. Remaining: {self.user_counts[uid]}")
+        print(f"[Cache] Evicted {to_remove_count} old scenarios for user {user_id}. Remaining: {self.user_counts[user_id]}")
 
-    def get(self, uid: str, scen_id: str) -> Optional[dict]:
-        key = self._key(uid, scen_id)
+    def get(self, user_id: str, _id: str) -> Optional[dict]:
+        key = self._key(user_id, _id)
         if key not in self.cache:
             return None
         self.cache[key]["last_access"]=time.time()
@@ -61,22 +61,22 @@ class ScenarioCache:
 
     def put(
         self,
-        uid: str,
-        scen_id: str,
+        user_id: str,
+        _id: str,
         graph: nx.Graph = None,
         closed_segments: list = [],
         alfa: float = 0.5,
         manual_weights: dict = {}
     ) -> bool:
-        key = self._key(uid, scen_id)
+        key = self._key(user_id, _id)
         state = {
                 "graph": graph,
                 "closed_segments": list(closed_segments) if closed_segments else [],
                 "alfa": alfa or 0.5,
                 "manual_weights": dict(manual_weights) if manual_weights else [],
                 "last_access": time.time(),
-                "uid": uid,
-                "scen_id": scen_id
+                "user_id": user_id,
+                "_id": _id
         }
         # Se già esiste → aggiorna senza controlli
         if key in self.cache:
@@ -85,37 +85,37 @@ class ScenarioCache:
             return True
 
         # Controllo limite per utente
-        current_count = self.user_counts.get(uid, 0)
+        current_count = self.user_counts.get(user_id, 0)
         if current_count >= self.max_per_user:
             # Elimina il 50% più vecchi
-            self._evict_half_for_user(uid)
+            self._evict_half_for_user(user_id)
             # Ricalcola dopo espulsione
-            current_count = self.user_counts.get(uid, 0)
+            current_count = self.user_counts.get(user_id, 0)
 
         # Controllo globale (dopo eventuale pulizia utente)
         if len(self.cache) >= self.max_global:
             # LRU globale: rimuove il meno recente overall
             old_key, old_state = self.cache.popitem(last=False)
-            old_uid = old_state["uid"]
-            self.user_counts[old_uid] = max(0, self.user_counts.get(old_uid, 0) - 1)
+            old_user_id = old_state["user_id"]
+            self.user_counts[old_user_id] = max(0, self.user_counts.get(old_user_id, 0) - 1)
 
         self.cache[key] = state
         self.cache.move_to_end(key)
 
-        self.user_counts[uid] = self.user_counts.get(uid, 0) + 1
+        self.user_counts[user_id] = self.user_counts.get(user_id, 0) + 1
 
         return True
 
-    def invalidate(self, uid: str, scen_id: str) -> bool:
-        key = self._key(uid, scen_id)
+    def invalidate(self, user_id: str, _id: str) -> bool:
+        key = self._key(user_id, _id)
         if key in self.cache:
             del self.cache[key]
-            self.user_counts[uid] = max(0, self.user_counts.get(uid, 0) - 1)
+            self.user_counts[user_id] = max(0, self.user_counts.get(user_id, 0) - 1)
             return True
         return False
 
-    def update(self, uid: str, scen_id: str, stateUpdate: Dict[str, any]) -> bool:
-        state = self.get(uid, scen_id)
+    def update(self, user_id: str, _id: str, stateUpdate: Dict[str, any]) -> bool:
+        state = self.get(user_id, _id)
         if state:
             state.update(stateUpdate)
             return True
@@ -125,7 +125,7 @@ class ScenarioCache:
         return {
             "total_cached": len(self.cache),
             "users": len(self.user_counts),
-            "per_user": {uid: cnt for uid, cnt in self.user_counts.items() if cnt > 0}
+            "per_user": {user_id: cnt for user_id, cnt in self.user_counts.items() if cnt > 0}
         }
     
     def has_capacity(self, user_id: str) -> bool:
